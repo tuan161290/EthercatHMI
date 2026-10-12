@@ -1,0 +1,93 @@
+# ESP-IDF v5.5.4, Guition JC1060P470C_I_W_Y (ESP32-P4 + ESP32-C6)
+CONFIG_IDF_TARGET="esp32p4"
+
+# Chip: all vendor firmware targets P4 silicon v1.x (vendor sdkconfig).
+# Check the real revision in the boot log / esptool before changing this.
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
+
+# Flash 16 MB QIO, PSRAM 32 MB HEX @200 MHz (as in the vendor LVGL demo)
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_IDF_EXPERIMENTAL_FEATURES=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_SPEED_200M=y
+# Execute from PSRAM so flash writes do not stall the caches during OP
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
+# Statics marked EXT_RAM_BSS_ATTR (HMI page state, snapshots, machine data) live in PSRAM, so
+# internal RAM keeps one block for the 96 KB LVGL draw buffer (DMA) and the EtherCAT data.
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+CONFIG_CACHE_L2_CACHE_256KB=y
+CONFIG_CACHE_L2_CACHE_LINE_128B=y
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+CONFIG_FREERTOS_HZ=1000
+# Run-time counters (esp_timer, us) for the CPU load in the title bar and console 'cpu'
+# (components/hmi/hmi_cpu.c). Costs one esp_timer read per context switch.
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096
+
+# Log output and the command console on the USB2 "Full Speed" Type-C port used for flashing
+# (USB-Serial-JTAG), so `idf.py monitor` can type commands without a UART adapter on CN2.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# Ethernet: internal EMAC, RMII. EtherCAT runs on raw frames, so lwIP is never attached.
+CONFIG_ETH_USE_ESP32_EMAC=y
+CONFIG_ETH_PHY_INTERFACE_RMII=y
+CONFIG_ETH_IRAM_OPTIMIZATION=y
+# SOEM sends from the cycle task and from the mailbox/check task
+CONFIG_ETH_TRANSMIT_MUTEX=y
+CONFIG_ETH_DMA_BUFFER_SIZE=512
+CONFIG_ETH_DMA_RX_BUFFER_NUM=20
+CONFIG_ETH_DMA_TX_BUFFER_NUM=10
+CONFIG_ETH_USE_SPI_ETHERNET=n
+
+# SOEM sized for this machine (ecx_contextt lives in internal RAM; was 99 KB with the defaults
+# 32/16/16, 2026-10-11):
+# - 20 slaves: slavelist[0] is the master's, so 19 on the bus (bench 10, target about 10).
+#   More slaves on the bus: ecx_config_init() refuses (EC_SLAVECOUNTEXCEEDED) and the bus stays down.
+# - 8 frame buffers: about 3 frames are ever in flight (one LRW per cycle, the IOmap fits one
+#   frame, plus state check or SDO from core 0). ecx_getindex() reuses a busy index when all are
+#   taken, so keep a margin.
+# - 6 mailboxes: SDOs run one at a time (2 mailboxes each); ecx_mbxhandler() is not used. An empty
+#   pool makes the SDO fail cleanly.
+CONFIG_SOEM_MAXSLAVE=20
+CONFIG_SOEM_MAXBUF=8
+CONFIG_SOEM_MBXPOOLSIZE=6
+
+# Keep the GPTimer alarm (precise cycle sleep) out of flash
+CONFIG_GPTIMER_ISR_HANDLER_IN_IRAM=y
+
+# Wi-Fi through the ESP32-C6: ESP-Hosted over SDIO (components/net). The pins are esp_hosted's
+# P4 defaults and match the vendor demos (slot 1, CLK 18, CMD 19, D0-D3 14-17, C6 reset 54).
+# Everything network runs on core 0: lwIP here, the esp_hosted tasks are pinned by components/net.
+CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y
+# Default event loop (Wi-Fi/IP events): 2304 left 876 bytes never used (console "mem", 2026-10-11)
+CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=3072
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# A Wi-Fi fault must never reboot the EtherCAT master (the default restarts the host)
+CONFIG_ESP_HOSTED_TRANSPORT_RESTART_ON_FAILURE=n
+# components/net connects when it wants to; no esp_hosted console commands or memory reports
+CONFIG_ESP_HOSTED_WIFI_AUTO_CONNECT_ON_STA_START=n
+CONFIG_ESP_HOSTED_CLI_ENABLED=n
+CONFIG_ESP_HOSTED_MEM_MONITOR=n
+
+# LVGL 9.5 (components/hmi, docs/HMI_THEME.md)
+CONFIG_LV_COLOR_DEPTH_16=y
+# Heap in PSRAM first (components/hmi/hmi_lv_mem.c); internal RAM stays for EtherCAT
+CONFIG_LV_USE_CUSTOM_MALLOC=y
+CONFIG_LV_USE_CLIB_STRING=y
+CONFIG_LV_USE_CLIB_SPRINTF=y
+# One software draw unit: rendering stays in the LVGL task on core 0 (no extra draw threads)
+CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1
+CONFIG_LV_DEF_REFR_PERIOD=15
+# Not in IRAM (unlike the vendor demo): internal RAM overflows by ~32 KB with EtherCAT's IRAM code
+CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n
+# Sub-pixel coordinates for the outline icons (hmi_icon.c)
+CONFIG_LV_USE_FLOAT=y
+# Open Sans is rendered from the embedded TTF files
+CONFIG_LV_USE_TINY_TTF=y
+# Every object is styled by components/hmi; no Material default theme
+CONFIG_LV_USE_THEME_DEFAULT=n

@@ -1,0 +1,62 @@
+menu "HMI (LVGL)"
+
+    config HMI_MACHINE_NAME
+        string "Machine name in the title bar"
+        default "[MACHINE NAME]"
+
+    config HMI_ACCENT_COLOR
+        hex "Accent colour (0xRRGGBB)"
+        default 0x107C41
+        help
+            Green as in the reference screenshot. 0x005FB8 is the Windows default blue,
+            which keeps the accent apart from the green "running/OK" status colour.
+
+    config HMI_DEMO_DATA
+        bool "Show the mockup's demo values"
+        default y
+        help
+            There is no machine logic yet. With this option the Main page shows the values of
+            the mockup (marked "demo data" in the page header), and the mode/Start/Stop buttons
+            only change what is displayed. Without it, values read "—".
+
+    config HMI_TASK_PRIORITY
+        int "LVGL task priority (core 0)"
+        range 1 18
+        default 4
+        help
+            Must stay below the EtherCAT tasks. The LVGL task is pinned to core 0.
+
+    config HMI_BRIGHTNESS
+        int "Backlight brightness (%)"
+        range 5 100
+        default 80
+
+    config HMI_DIM_AFTER_S
+        int "Dim the screen after (s without a touch, 0 = never)"
+        range 0 3600
+        default 120
+        help
+            Default until Settings > System saves another value.
+
+    config HMI_OFF_AFTER_S
+        int "Switch the screen off after (s without a touch, 0 = never)"
+        range 0 3600
+        default 600
+        help
+            Default until Settings > System saves another value. Counted from the last touch,
+            like the dim timeout.
+
+    config HMI_DIM_LEVEL
+        int "Dimmed backlight (% of the set brightness)"
+        range 5 90
+        default 20
+
+    config HMI_BG_LEVEL
+        int "Background grey (% of white)"
+        range 50 100
+        default 80
+        help
+            Solid grey behind the white cards, in % of white: 80 gives #CCCCCC (user's choice,
+            2026-10-10). The backlight is set separately (Settings > System).
+
+endmenu

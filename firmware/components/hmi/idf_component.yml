@@ -1,0 +1,8 @@
+# LVGL and the port versions that the vendor LVGL demo resolved and built on IDF 5.5.4.
+# esp_lvgl_port 2.9 needs IDF 6 (on_frame_buf_complete), so stay on 2.8.
+dependencies:
+  idf: ">=5.5,<6.0"
+  lvgl/lvgl:
+    version: "9.5.0"
+    public: true
+  espressif/esp_lvgl_port: "~2.8.0"

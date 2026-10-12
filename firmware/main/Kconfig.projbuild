@@ -1,0 +1,39 @@
+menu "EtherCAT HMI application"
+
+    config APP_ECAT_CYCLE_US
+        int "EtherCAT cycle time (us)"
+        range 250 100000
+        default 1000
+
+    config APP_ECAT_GO_OP
+        bool "Bring slaves to OPERATIONAL and run cyclic process data"
+        default y
+        help
+            When disabled the application scans and compares the topology but stays in PRE-OP.
+
+    config APP_ECAT_MONITOR_PERIOD_MS
+        int "Statistics print period (ms)"
+        range 200 60000
+        default 1000
+
+    config APP_HMI
+        bool "Start the LVGL HMI on the 7\" display"
+        default y
+        help
+            Display, touch and LVGL on core 0 (components/hmi). EtherCAT keeps running if the
+            display fails to start.
+
+    config APP_ECAT_CONSOLE
+        bool "Serial console for topology commands (scan, accept, recheck, ...)"
+        default y
+        help
+            Stands in for SETTING > ETHERCAT until the LVGL HMI exists.
+
+    config APP_TOPOLOGY_AUTO_ACCEPT
+        bool "Accept the first scan automatically when no topology is saved (bench use only)"
+        default n
+        help
+            Never enable this on a machine: the expected topology must be confirmed by a person
+            (docs/ETHERCAT_PLAN.md section 3.6).
+
+endmenu

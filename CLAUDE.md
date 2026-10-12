@@ -1,0 +1,192 @@
+# CLAUDE.md — EthercatHMI
+
+## Purpose
+Firmware for an **HMI + EtherCAT master** on a Guition **JC1060P470C_I_W_Y**: a 7" 1024x600 MIPI-DSI display with an ESP32-P4 and an ESP32-C6 inside module U3 "JC-ESP32P4-M3". The EtherCAT master (SOEM) runs over the P4's internal EMAC and the on-board RJ45. The HMI uses LVGL 9.5 (shell and Main page written; boots on the board without errors since 2026-10-10, but nobody has yet checked the picture and touch on the screen).
+
+Target machine (planning stage; hardware not available yet): about **8 Leadshine EtherCAT axes (CiA402)** plus **Leadshine R1EC remote IO**.
+- ESI files are in `vendor/ESI/` (Leadshine L5N, L3N, CL3B-EC, R1EC; Fastech). The folder is **read-only**.
+- `PGM/` is the user's earlier C# WPF machine program (6× L5N-400S + 2× CL3B-EC507 + R1EC).
+  - **The target machine is NOT the PGM machine.** Use PGM only as a reference for **how to connect the bus and configure servos and remote IO**, not for machine logic or UI.
+  - It is read-only: do not build or edit it.
+  - Its EtherCAT library source is not included; facts were recovered from the DLLs in `PGM/.../bin/Debug/net48/`.
+- Digest of both: `docs/SLAVES_LEADSHINE.md` (ESI facts, R1EC module configuration, PP vs CSP) and `docs/REFERENCE_PGM.md` (PGM connect sequence, servo parameters and commands, R1EC hook and quirks).
+
+## HMI
+- **UI language: English only.** No Vietnamese font needed.
+- Working structure (mockup: https://claude.ai/artifact/GgcWLcopMKjc9ibk3oUBFo, private to the user): title bar (machine name, mode/state/EtherCAT chips, clock, user level) + left navigation rail **Main · Manual · IO monitor · Alarms**, with **Settings** at the bottom of the rail (Windows 11 NavigationView).
+  - Manual: Jog, Teaching (points per axis group), Actuators, Homing.
+  - Settings: Time (sequence timers + RTC clock), Servo (per axis, CiA402 objects via SDO), Recipe, User & password, Maintenance, EtherCAT, System, Backup/restore.
+- Axes are named AX1–AX8 until the mechanics are known.
+- **Theme (user's choice, 2026-10-03): Windows 11 Fluent, light**, like the Microsoft Store: solid white cards and controls (no translucency) with hairline strokes, pill filters, sentence-case labels, accent green `#107C41`, Open Sans (Segoe UI is proprietary). Tokens and the LVGL mapping are in `docs/HMI_THEME.md`.
+  - **Three layers, as in Windows 11** (user, 2026-10-10):
+    - background: solid grey `#CCCCCC` (`CONFIG_HMI_BG_LEVEL` = 80 % of white);
+    - cards: white;
+    - controls: `#FBFBFB` with a stroke and a darker 1 px bottom edge (`hmi_elevation()`, drawn inside the object, flat while pressed); text fields have a 45 % bottom edge (`hmi_field_style()`).
+  - No gradient, no background image and no dithering (removed 2026-10-10: the dithered gradient made grey areas flicker on the panel and cost 1.2 MB PSRAM plus 1 s at boot).
+  - No shadows.
+  - **Sized for touch and arm's-length reading** (user, 2026-10-11: text too small, controls not made for touch). Use the tokens of `hmi_internal.h`, never literal sizes:
+    - type: `HMI_FS_SMALL` 15 (captions, units, tags), `HMI_FS_BODY` 18 (labels, values, buttons), `HMI_FS_LARGE` 20, `HMI_FS_HEAD` 24 (dialog titles), `HMI_TITLE_PX` 28 (page titles), `HMI_FS_BIG` 34, `HMI_FS_HUGE` 44, `HMI_FS_TINY` 13 (badges);
+    - touch: `HMI_TOUCH_H` 52 (buttons, fields, segmented controls, about 8 mm), `HMI_ROW_H` 56 (list rows), `HMI_ICON_BTN` 20 (icon in a button);
+    - shell: title bar 56 px, rail 96 px (items 84x76), page area 928x544.
+    - The panel is 1024x600 (`BOARD_LCD_H_RES`), about 170 ppi on 7".
+  - Axis pickers are a combo that opens the roller list (`hmi_choice`), not a grid of small segments (Manual > Jog, Settings > Servo).
+  - Settings is a 4x3 grid of tiles (LVGL grid layout), not rows.
+
+## Where things are
+- `firmware/` is the ESP-IDF project:
+  - `components/soem/`: SOEM v2 vendored unmodified in `SOEM/` (commit in `SOEM_UPSTREAM.md`) plus the ESP-IDF port in `port/` (OSAL, nicdrv, esp_eth glue). Public API: `soem_esp.h`.
+    - `port/ec_config.c` is a patched copy of the upstream file (two `ESP-PORT PATCH` lines) that adds `soem_esp_set_pdo_layout()`.
+    - Sized for this machine in `sdkconfig.defaults` (2026-10-11): `CONFIG_SOEM_MAXSLAVE=20` (19 slaves on the bus), `MAXBUF=8`, `MBXPOOLSIZE=6`. `s_ctx` went from 99 KB to 54 KB; free internal RAM at "HMI up" from 154 KB to 199 KB.
+      - Verified in OP with 10 slaves: boot, R1EC SDO config, WKC 30/30 and many SDO reads.
+      - An SDO burst from core 0 (`sdo 10 rack`, 6 objects) makes the cycle task wake 17–38 µs late and RTT reach 150–440 µs. It does the same with 16 frame buffers (A/B test), so the buffer count is not the cause.
+      - One overrun happened once (RTT 2245 µs, WKC correct) during a rack read plus a Wi-Fi scan. It was not reproduced in two more tries with either buffer count.
+        - RTT is timed from before `ecx_send_processdata()`, so it includes waiting for the getindex and EMAC TX mutexes shared with core-0 senders.
+        - Suspected cause (unproven): a core-0 sender holds one of those mutexes and is preempted by esp_hosted tasks at priority 23. Priority inheritance only lifts it to 19.
+  - `components/ecat/`: device catalog, topology Scan → Accept → Save (NVS), R1EC coupler hook, `selftest`.
+    - `ecat_drive.c`: the PO2SO hook remaps every CiA402 drive to one PDO layout (RxPDO 6040/607A/60FF/6081/6083/6084/6060, TxPDO 6041/603F/6061/6064/606C/60FD plus 503F on Leadshine servos). `docs/SLAVES_LEADSHINE.md` section 6.
+    - `ecat_axis.c`: per-axis CiA402 control in the cyclic task, with PP moves and step jog, PV continuous jog (300 ms dead-man) and HM homing with the drive's method. Commands go in through a queue and status comes out through a seqlock. `ecat_axis_selftest()` runs it against a simulated drive.
+      - Two-axis paths (`ecat_path_*`, 2026-10-12): a line or a CW/CCW arc in CSP (6060 = 8). Each cycle the task computes both 607A targets from one trapezoid speed profile along the path (real interpolation), and measures the contour error and lag. A stop or a lost axis decelerates along the path; the axes go back to PP afterwards. Still Free Run without DC: whether L5N/CL3B accept CSP that way is unverified (`docs/SLAVES_LEADSHINE.md` 6). Self-test: 14 checks with two simulated drives.
+      - Fails safe: a fault, 3 bad WKC cycles, or a drive leaving Operation enabled switches the axis off, and it never re-enables by itself.
+      - Not yet run with a real drive (2026-10-10).
+    - `ecat_busview.c`: topology snapshot for Settings › EtherCAT.
+    - `ecat_io.c`: coupler (R1EC) IO image for the HMI (seqlock, X/Y numbering by rack order) and output forcing through a queue, run from the cyclic loop.
+    - `ecat_sdo_service.c`: core-0 worker that runs SDO jobs for Settings › Servo while holding the bus lock. A job names the slave by position plus vendor/product and is refused for a different device.
+      - `hold_loop()` in main.c releases `s_bus_lock` while it waits for a command, so jobs also run in PRE-OP.
+  - `components/machine/`: machine data shared by the HMI and the future sequence.
+    - `machine_store.c`: values in RAM plus an **append-only log in the `mstore` partition** (512 KB, two halves), so a Save works also while EtherCAT is in OP (2026-10-11; before, saves waited for the bus to leave OP and were lost at the next reset).
+      - In OP it only programs erased flash, one 256-byte page per write from internal RAM with a 2 ms pause after each, so each stall is one page program. It never erases in OP: an erase stalls both cores longer than the drives' 100 ms watchdog.
+      - Compaction (erase the other half, copy the newest record of every key) only while `flash_ok()`: at start-up when the active half is over 50 % full, or when the log is full (a save then waits in RAM until the bus leaves OP).
+      - Keys of the old NVS namespace `machine` are imported once at start-up, then erased from NVS. Console: `store`, `store test`.
+      - Measured on the board in OP with 10 slaves (2026-10-11):
+        - `store test` (ten 1 KB saves) took 90 ms, worst save 10 ms;
+        - cycle stats stayed at 0 overruns, wake late ≤ 2 µs;
+        - the imported keys (teach points, timers, axes, display) survived a reset.
+    - `machine_params.c`: timers T01–T08, per-axis HMI settings (accel/decel/high jog speed, keyed by axis name), teach points per 3-axis group.
+    - `machine_clock.c`: RTC → system clock, time zone (default UTC+07:00).
+    - `machine_alarm.c`: alarm list (Active / Acknowledged / Cleared) and a RAM history. `main/app_alarms.c` raises the codes listed in `docs/SETUP.md` 7d.
+    - `ecat_catalog_gen.c` is generated: run `python tools/esi2catalog.py ../vendor/ESI/Leadshine -o components/ecat/ecat_catalog_gen.c` after adding an ESI file; never edit it by hand.
+  - `components/board/`: `board_pins.h` (every GPIO number), `board_eth.c` (EMAC + IP101 bring-up, no lwIP) and `board_display.c` (DSI + JD9165 New/Old init tables, LEDC backlight, GT911 with RST/INT driven), `board_i2c.c` (shared I2C bus 1) and `board_rtc.c` (RX8025T).
+  - `components/hmi/`: LVGL 9.5 HMI in the Fluent light theme (`docs/HMI_THEME.md` section 6).
+    - Done (all mockup pages): shell, Main, Manual › Jog and Teaching, IO monitor, Alarms, Settings list, Settings › Time, Servo, EtherCAT and System. Also Settings › Network (Wi-Fi + internet time, no mockup, 2026-10-11) and Manual › Interpolation (`hmi_page_interp.c`, two-axis CSP test with an XY plot, no mockup, 2026-10-12; `docs/SETUP.md` 7e).
+    - `hmi_dropdown()` (hmi_widgets.c): combo box that drops its list under it (lv_dropdown, 52 px rows). The user asked for drop-down combo boxes to pick the interpolation axes (2026-10-12); the other axis pickers still open the `hmi_choice` roller.
+    - `hmi_text_input()` (hmi_widgets.c): text entry with an on-screen keyboard (lv_buttonmatrix, printable ASCII; special keys are words because Open Sans has no arrow/keyboard glyphs; keys type on release so slide-off cancels).
+      - Placeholders, because they have no mockup: Settings › Recipe, User & password, Maintenance, Backup / restore, and Manual › Actuators and Homing.
+      - Pages with bus data were opened on the board without slaves only (2026-10-10). They are untested with drives and the R1EC (`docs/SETUP.md` 7d).
+    - Settings › EtherCAT sends Scan/Accept/Re-check through `hmi_config_t.bus_request` (main.c). Scan or Re-check while in OP first stops the axes and leaves OP.
+    - Units (`hmi_axis.c`) follow Settings › Servo:
+      - Each axis has a Unit (HMI setting): mm (linear), deg (rotary) or rev. With mm or deg and a Distance/Rev (travel of the load per motor revolution in that unit: screw lead, or 360 / gear ratio) the pages show that unit and mm/s or deg/s; otherwise motor revolutions and rpm. Positions in deg are not wrapped at 360.
+      - Pulse/Rev is the drive's factor group (0x6092:1 written with 0x6092:2 = 1). 10000 is assumed if the drive reports none.
+      - Moves are limited to Max speed. Acc/Dec times are ms from standstill to Max speed.
+      - Settings are kept in NVS per axis name (`machine_params.h`).
+      - `ECAT_AXIS_SET_SCALE` gives the axis a new Pulse/Rev without a bus restart.
+    - Open Sans has no "→" glyph; it does have −, —, ·, ±, … and ›.
+    - Touch: a press whose finger slides more than 12 px off its control is cancelled (no click, hold-to-run buttons get PRESS_LOST at once): `hmi_touch_slide_cancel()`. LVGL's default `LV_OBJ_FLAG_PRESS_LOCK` alone clicks wherever the finger lifts.
+    - A scroll area made from an `hmi_box` needs `hmi_scroll_area()` (adds CLICKABLE): LVGL starts a drag at a clickable object, so a list of plain rows never scrolled otherwise.
+    - `hmi_display.c`: backlight plus per-channel RGB565 gain tables applied at `LV_EVENT_FLUSH_START`. Settings are kept in the machine store (key `display`; moved once from the NVS `hmi`/`display` of earlier firmware).
+    - Screen timeouts (2026-10-11; also in `hmi_display.c`):
+      - The screen dims, then switches off after Dim after / Turn off after without a touch (Settings › System, Screen card).
+      - The touch that lights it again is swallowed: the touch read callback is wrapped and reports "released" until the finger lifts, so the button under the finger is not pressed.
+      - A new unacknowledged alarm also lights the screen (checked by the screen timer, which keeps running while off).
+      - Dim and wake: verified on the board.
+      - While the screen is off the UI is suspended (user, 2026-10-11):
+        - Every LVGL timer is paused except the screen timer and the touch read timer, so nothing renders. The touch works through the GT911 interrupt (event mode).
+        - Lit again, only the timers it paused and that still exist are resumed, then the screen is redrawn.
+        - A new page timer needs nothing special for this. Never keep state that must advance while the screen is off in an LVGL timer.
+        - Not yet run on the board.
+    - `hmi_cpu.c` (2026-10-12): CPU load of both cores (idle-task run-time counters, `CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS`) and LVGL frames/s, sampled each second by an esp_timer. Title bar chip "CPU core0 · core1 %" next to the EtherCAT chip; console `cpu [n]`. On the board without slaves: core 0 2–17 %, core 1 0 %, LVGL 2–4 frames/s when nothing is touched. Cost of the run-time counters to the EtherCAT cycle not yet measured in OP.
+    - The panel already refreshes at about 60.9 Hz (DPI 52 MHz / (1344 x 635) with the New panel's porches); LVGL's period is 15 ms. Frames/s while scrolling not yet measured (`cpu 10` while dragging a list).
+    - `hmi_screenshot.c`: console `screenshot` prints the DPI frame buffer as PackBits + base64 lines. `python tools/screenshot.py COMx [out.png]` saves it as a PNG, without resetting the board; it retries when a log line got into the dump.
+    - `hmi_page_info.c`: Settings > System info: internal RAM, PSRAM (free, lowest since start-up, largest block) and the machine store, plus firmware, chip, MAC, uptime, Wi-Fi and EtherCAT. Console `mem` prints the same plus the never-used stack of each task.
+  - `tools/hmi_sim/`: **HMI simulator on the PC** (MSVC from Visual Studio, no board): `python tools/hmi_sim/sim_build.py run [page ...]` renders pages and dialogs to PNG in `<drive>:/esp/build/hmi_sim/shots`. It compiles the real `components/hmi` with LVGL and the firmware build's `sdkconfig.h`, so the picture is the board's (minus the colour balance).
+    - Stand-ins: `include/` (ESP-IDF headers; `sim_compat.h` is forced into every file and drops GCC `asm` labels and `__attribute__`), `sim_fake.c` (C runtime gaps, chip info, LVGL heap), `sim_machine.c` (the bench bus in OP, alarms, Wi-Fi). The catalog, topology rules, parameters and alarms are the real files (`REAL` in `sim_build.py`).
+    - A new HMI call into another component fails at link time in the simulator: add a stand-in to `sim_machine.c`.
+    - Use it for every UI change before flashing.
+    - Never render from `app_main`: `lv_refr_now()` there overflowed its 4 KB stack. The LVGL task (12 KB) renders, and `hmi_start` waits for `LV_EVENT_RENDER_READY`.
+    - Open Sans is embedded and rendered with TinyTTF.
+    - The background is generated at boot.
+    - LVGL's heap is in PSRAM.
+    - **Internal RAM** (199 KB free at "HMI up" since the SOEM resize; while running with Wi-Fi about 105 KB free, largest block 32 KB: console `mem`, 2026-10-11). The 96 KB draw buffer needs one contiguous DMA block. So:
+      - `hmi_start()` runs before the EtherCAT tasks are created;
+      - page state, snapshots and machine data are in PSRAM (`EXT_RAM_BSS_ATTR` with `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY`, or `lv_malloc`/`heap_caps_malloc`).
+      - Put new large statics there too. The exceptions are buffers the cyclic loop writes every cycle; keep those small.
+  - `components/net/`: Wi-Fi station through the ESP32-C6 (esp_hosted 2.11.7 + esp_wifi_remote 1.6.5 over SDIO, as in the vendor demos) and NTP into the RTC. One `net` task on core 0 owns Wi-Fi (every esp_wifi_* call is a blocking RPC to the C6); the HMI and console only post requests and read `net_status()`. Settings in the machine store (key `wifi`, password in plain text). Reconnects with 5–60 s back-off; NTP every hour and on every (re)connect, then `machine_clock_save_to_rtc()`.
+    - **esp_hosted starts from a constructor before app_main and creates its tasks unpinned at priority 23** (above `ecat` 19 and `emac_rx` 20). `net.c` replaces `_h_thread_create`/`_h_thread_cancel` in `g_hosted_osi_funcs` from a `constructor(200)` (prioritised constructors run first), so they are pinned to core 0 with PSRAM stacks. Only table fields 1–12 are touched: they precede its first `#if`. Re-check this when updating esp_hosted. Console `wifi tasks` shows core and priority.
+    - `CONFIG_ESP_HOSTED_TRANSPORT_RESTART_ON_FAILURE=n`: by default esp_hosted reboots the host when the C6 fails. Never re-enable it on this machine.
+    - Runs on the board (2026-10-11):
+      - all esp_hosted tasks on core 0 (`wifi tasks`);
+      - scan, join (WPA2 "OpenWrt") and DHCP work; NTP set the clock 2 s after the IP and wrote the RTC;
+      - after a reset Wi-Fi reconnects by itself (IP about 9.5 s after boot) and NTP syncs again;
+      - free internal RAM at "HMI up" went from 172 KB to 154 KB;
+      - EtherCAT in OP during scan and join: 0 overruns, wake late at most 2 µs; RTT average about 3 µs higher, worst 179 µs.
+  - `main/main.c`: EtherCAT bring-up app (scan → compare → OP or hold in PRE-OP; cyclic PDO, stats), starts the HMI and publishes the bus status to it.
+  - `main/app_console.c`: console commands on USB-Serial-JTAG (`topo`, `scan`, `accept`, `recheck`, `forget yes`, `stop`, `selftest` (topology + axis logic), `panel [new|old]`, `display [bright N | rgb R G B | reset | dim S | off S | wake]`, `axis [n on|off|reset|stop|qstop|home|move|rel|jog]`; `docs/SETUP.md` 7c, `path [stop | line X Y dx dy | cw|ccw X Y i j [deg]] [rev/s] [ms]` (two-axis CSP path in motor revolutions; 7e), `page <name>` (open an HMI page without touch), `cpu [n]` (CPU load and LVGL frames/s), `screenshot` (with `tools/screenshot.py`), `touchlog`, `sdo <pos> <index hex> [sub]` and `sdo <pos> rack` (CoE reads through the SDO worker, with the abort code), `store [test]` (machine store keys and space; `test` times ten 1 KB saves), `clock [YYYY-MM-DD HH:MM[:SS]]`, `mem`, `wifi [on|off|scan|join <ssid> [pw]|forget|tasks]`, `ntp [on|off|server <name>|sync]`, `alarms [ack]`).
+    - The LCD panel variant is stored in NVS and takes effect after a reset.
+- `docs/BOARD.md` has the reconciled pin map and subsystems. `docs/ETHERCAT_PLAN.md` has the architecture and phases. `docs/SETUP.md` covers toolchain, build, flashing and smoke tests. Read them before touching hardware code.
+- `docs/SLAVES_LEADSHINE.md` covers the slaves. Read it before writing any slave configuration code.
+  - **R1EC needs a `PO2SOconfig` hook** (0xF030 module list + 0x1C12/0x1C13). Without it SOEM maps only the 4-byte Device Status.
+  - R1EC does not serve its PDO mapping objects over SDO (per PGM). Module bit widths must come from the ESI, which needs a small `ec_config.c` fork in `port/`. PGM patched SOEM the same way.
+  - PGM saw 0xF030 stick only once per power cycle. With this firmware the R1EC (rev 0x22092010) has an empty 0xF030 again after INIT and takes the list on every master restart without a power cycle (verified 2026-10-11).
+  - In R1EC inputs, `0xF100:01` Device Status comes before the DI channels.
+  - **Runs on hardware since 2026-10-11** (rack 2× SC-3200-1 + SC-0032-N-1 behind 7× L5N + 2× CL3B): rack read, 0xF030 written (sub0 then reads back the count), PDO assign accepted, ESI SM sizes accepted, OP with WKC 30/30. Results and open checks: `docs/SLAVES_LEADSHINE.md` 4.5.
+  - **SOEM gotcha:** `ecx_statecheck(ctx, 0, …)` records the state in `slavelist[0]` only, and `ecx_mbxsend()` refuses any slave whose own recorded state is below PRE-OP. Call `ecx_readstate()` before SDO traffic that follows `ecx_config_init()` (the first R1EC scan failed with "0xF050 not readable" because of this).
+- `vendor/JC1060/` is the vendor package. It is **READ-ONLY**: never modify it, and never build inside it. Copy a demo to `C:\esp\smoke\...` before building it.
+  - Schematic: `vendor/JC1060/5-Schematic/JC1060P470C_I_W_Y-V1.0.pdf` (1 sheet).
+  - P4 datasheet: `vendor/JC1060/4-Driver_IC_Data_Sheet/ESP32_P4_Chip_Datasheet_CN_v0.4.1_0320 .pdf`. Note the space before `.pdf`.
+  - IDF demos: `vendor/JC1060/1-Demo/Demo_IDF/ESP-IDF_5.5.4/JC1060P470C_I_W_Y_{New,Old}_Panel/`.
+
+## Build / flash
+- ESP-IDF **v5.5.4** at `C:\esp\v5.5.4\esp-idf` (installed with EIM; v6.1 is also installed but the vendor BSP does not build on 6.x). Activate with `. C:\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1`.
+  - The second PC (DESKTOP-NHHD9F1, project at `D:\OwnCloud\...`) has everything on **D:**: `D:\esp\v5.5.4\esp-idf`, `D:\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1`, build dir `D:\esp\build\ehmi`. Only v5.5.4 is installed there. `flash.ps1` picks C: or D: automatically (`docs/SETUP.md` section 0).
+- The project root is in an ownCloud-synced path with MAX_PATH 260, so **always build out of tree:**
+  - `idf.py -B C:\esp\build\ehmi build`
+  - `idf.py -B C:\esp\build\ehmi -p COMx flash monitor`
+- Flash via the **USB2 "Full Speed" Type-C** (USB-Serial-JTAG). The log and the `ecat>` command console use the same port (`CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG`).
+- `firmware\flash.bat` (logic in `firmware\tools\flash.ps1`, `docs/SETUP.md` 2b) is the user's one-click build/flash/monitor menu. Before any write it checks the chip revision against `sdkconfig` and requires a 16 MB backup per board in `<drive>:\esp\backup\<MAC>\`. Keep `flash.ps1` UTF-8 **with BOM** (Vietnamese strings under PowerShell 5.1).
+- Keep settings in `sdkconfig.defaults`; do not commit `sdkconfig`, `build/` or `managed_components/`.
+  - After changing the defaults, delete `firmware/sdkconfig` so IDF regenerates it.
+  - Commit `firmware/dependencies.lock`. Versions are pinned in each component's `idf_component.yml`: LVGL 9.5.0, esp_lvgl_port ~2.8.0 (2.9.0 breaks on IDF 5.5.4), esp_lcd_jd9165 2.0.2, GT911 1.2.1.
+- `firmware/managed_components` is a junction to `C:\esp\managed\ehmi`, which keeps LVGL out of ownCloud (`docs/SETUP.md` section 1).
+- Partition table: `firmware/partitions.csv`, with a 6 MB app, nvs at 0x9000 and `mstore` (machine store, 512 KB) at 0x610000.
+
+## Board facts that are easy to get wrong
+- **Ethernet:** IP101GR-class PHY (inferred) at addr 1, RMII. MDC 31, MDIO 52, PHY_RST **51** (IDF default is 5, so always set it). TXD0 34, TXD1 35, TX_EN 49, RXD0 29, RXD1 30, CRS_DV 28.
+  - **REF_CLK is an input on GPIO50 (`EMAC_CLK_EXT_IN`).** The PHY makes the 50 MHz clock from a 25 MHz crystal.
+- **GPIO35 is both RMII TXD1 and the BOOT button.** Pressing BOOT at runtime corrupts Ethernet TX.
+- **LCD_RST = GPIO0.** Vendor Arduino and video demos use GPIO5, and xiaozhi uses GPIO27. Both are wrong.
+- **Touch:** GT911 at 0x5D on I2C_NUM_1 (SDA 7, SCL 8), shared with ES8311 0x18 and the RX8025T RTC. **INT = GPIO21 and RST = GPIO22 are wired** even though the BSP says NC.
+- **RTC:** RX8025T answers at **0x32** (verified 2026-10-10). The register map comes from the Epson manual; the datasheet is not in the vendor package.
+  - The RTC stores UTC.
+  - At first boot VLF was set (time lost). After setting the time, it survived a reset. Power-off retention, which depends on the CR1220 cell, is untested.
+- **Backlight:** GPIO23 (LEDC).
+- **DSI:** 2 lanes at 750 Mbps, DPI 52 MHz, RGB565 only (COLMOD 0x55 is hard-coded). PHY power from LDO_VO3 at 2500 mV.
+- **Panel variants:** New and Old differ only in the JD9165 init table and HBP (136 vs 160); pins are identical. A back label with "V2" means **New** panel, but factory firmware named "V2.x" is for the **Old** panel.
+  - The user's module label ends in "V2", so it is the **New** panel, which is the firmware default (2026-10-10). Not yet confirmed on screen.
+- **ESP32-C6** uses ESP-Hosted SDIO slot 1 (CLK18, CMD19, D0-3 = 14-17) with reset on GPIO54 (vendor demo sdkconfig; esp_hosted's P4 defaults). Module-internal; used for Wi-Fi by `components/net`. The vendor package ships the C6 firmware `8-Burn operation/Burn files/JC-C6-slave_v2.3.2.bin`; the board's C6 reports esp_hosted **2.3.0** (boot log 2026-10-11: "Version mismatch: Host [2.11.0] > Co-proc [2.3.0] ==> Upgrade co-proc to avoid RPC timeouts"). Scan, join and NTP work with it; upgrading the C6 is optional and untested.
+- **RS485 / UART1:** TX 26, RX 27. MAX485 auto-direction, powered from 5 V, no 120 Ω termination.
+- **Console:** UART0 on GPIO37/38 (CN2). USB-Serial-JTAG on GPIO24/25.
+- **Free header GPIOs (JP1):** 1, 2, 3, 4, 5, 20 (ADC), 32, 33, 45 (check JP1-14 continuity first), 46, 47. 32/33 are the scope pins.
+- **Chip revision:** all vendor builds and `sdkconfig.defaults` target P4 **v1.x** (`CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y`, 360 MHz). The user's board reads **v1.3** with 16 MB flash and MAC e8:f6:0a:e7:3a:3e (esptool `flash_id` on 2026-10-10), so v1.x is correct. v1.x and v3.x images are not interchangeable.
+
+## Architecture rules
+- **Core 1:** EMAC ISR + `emac_rx` task (prio `SOEM_RT_TASK_PRIO + 1`, `ETH_MAC_FLAG_PIN_TO_CORE`), the GPTimer alarm used by `osal_monotonic_sleep()`, and the `ecat` cycle task. Create the MAC and call `soem_esp_attach()` from a task pinned to core 1.
+- **Core 0:** LVGL, Wi-Fi via the C6, SOEM state checking/mailbox work, NVS, SD, app logic.
+- **Never attach lwIP/esp_netif to the EMAC.** SOEM gets frames via `esp_eth_update_input_path`; the callback must `free()` buffers it does not queue.
+- The `emac_rx` task must outrank every task on core 1 that waits for frames, or receive stalls until timeout.
+- **HMI and EtherCAT exchange data only through** a seqlock process-image snapshot (EtherCAT to HMI) and a FreeRTOS command queue (HMI to EtherCAT). Never call `ecx_*` from LVGL.
+- **Topology is Scan → Accept → Save** (`docs/ETHERCAT_PLAN.md` 3.6):
+  - The axis/IO list is built from a bus scan but only used once an ENGINEER accepts it.
+  - At every boot the bus is compared with the saved topology. A different model, a missing or extra slave, or a changed R1EC rack holds the bus in PRE-OP.
+  - Slaves are identified by **cable position** (user's decision 2026-10-10, replacing station alias): the n-th drive along the chain is AXn, the n-th IO slave RIOn. No alias needs setting; a saved slave is compared with the bus slave at the same position. Per-axis data (servo params, limits, teach points) is keyed by axis name.
+    - Two drives of the same model swapped in the chain cannot be detected. The docs tell the user to keep the cable order and label it.
+    - After a recovery in OP, a slave's SII vendor/product is read again (`ecat_topology_verify_slave()`).
+- **Safety logic fails safe:** losing the IO slave, a wrong WKC, or R1EC Device Status ≠ 0 means Emergency, never "inputs read as OK".
+- **On core 1 while in OP:** no flash/NVS writes, no printf and no malloc in the cycle path. IOmap and `ecx_contextt` stay in internal RAM.
+- **Flash in OP:** never erase, and no NVS writes (NVS erases a sector whenever a page fills). Core-0 code that must save in OP goes through `machine_store` (paced page programs).
+- Cycle-time targets: 1 ms first, then 500 µs. Not measured on hardware yet.
+
+## Conventions
+- Cite a source (file + page or line) for every hardware fact you add to docs or comments. Mark anything unverified as such.
+- All pin numbers live in `components/board/include/board_pins.h`. Nothing else may contain a magic GPIO number.
+- Never edit `components/soem/SOEM/`; platform changes go in `components/soem/port/`.
+- Docs in `docs/` are written in Vietnamese. Code, identifiers and comments are in English.
+- SOEM v2 is GPLv3/commercial. Keep the stack behind the port layer so CherryECAT (Apache-2.0) can be swapped in. The licence decision is still open.

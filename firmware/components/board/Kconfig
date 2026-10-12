@@ -1,0 +1,29 @@
+menu "Board: Guition JC1060P470C_I_W_Y"
+
+    choice BOARD_LCD_PANEL
+        prompt "Default LCD panel variant"
+        default BOARD_LCD_PANEL_NEW
+        help
+            The board ships with one of two glass panels behind the same JD9165 driver IC.
+            They need different init tables and timing and cannot be detected at run time
+            (docs/BOARD.md section 5). A "V2" label on the back means New.
+            A wrong choice shows wrong colours or gamma, flickers, or stays black.
+
+            This is only the default: the console command 'panel new|old' stores the
+            choice in NVS, so both can be tried without rebuilding.
+
+        config BOARD_LCD_PANEL_NEW
+            bool "New panel (V2 label; factory firmware V3.7)"
+        config BOARD_LCD_PANEL_OLD
+            bool "Old panel (HKC QD070AS01-1; factory firmware V2.x)"
+    endchoice
+
+    config BOARD_LCD_DSI_LANE_MBPS
+        int "MIPI-DSI lane bit rate (Mbps)"
+        range 500 1500
+        default 750
+        help
+            Every vendor source uses 750 Mbps except the xiaozhi "new" board (550).
+            Its README suggests trying 550, 750 or 900 if the screen stays dark.
+
+endmenu

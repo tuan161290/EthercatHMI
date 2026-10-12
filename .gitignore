@@ -1,0 +1,23 @@
+# ESP-IDF: generated, never committed (CLAUDE.md, Build / flash). Builds go to <drive>:\esp\build.
+firmware/build/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/.cache/
+# Junction to <drive>:\esp\managed\ehmi (docs/SETUP.md section 1); no trailing slash so the link itself matches
+firmware/managed_components
+
+# Vendor package archive (222 MB): stays in ownCloud only
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+
+# ownCloud and Windows sync files
+.owncloudsync.log
+._sync_*.db*
+.sync_*.db*
+*_conflict-*
+Desktop.ini
+Thumbs.db
+~$*

@@ -1,0 +1,9 @@
+# Versions pinned to the ones the vendor LVGL demo resolved and built on IDF 5.5.4
+# (docs/BOARD.md 3.2: the vendor manifest uses "*").
+dependencies:
+  idf: ">=5.5,<6.0"
+  espressif/esp_lcd_jd9165: "2.0.2"
+  espressif/esp_lcd_touch_gt911: "1.2.1"
+  espressif/esp_lcd_touch:
+    version: "1.2.1"
+    public: true

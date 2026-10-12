@@ -1,0 +1,10 @@
+# 16 MB flash. nvs and phy_init keep the offsets of the IDF "single app large" table, so the
+# saved EtherCAT topology (NVS namespace "ecat") survives the change. The app grew past 1.5 MB
+# with LVGL and the embedded fonts.
+# mstore: machine data (settings, teach points), an append-only log in two halves that is
+# written also while EtherCAT is in OP (components/machine/machine_store.c).
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x6000,
+phy_init, data, phy,     0xf000,   0x1000,
+factory,  app,  factory, 0x10000,  6M,
+mstore,   data, 0x40,    0x610000, 512K,

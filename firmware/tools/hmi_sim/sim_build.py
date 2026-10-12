@@ -1,0 +1,225 @@
+"""Build and run the HMI simulator: the firmware's components/hmi and LVGL 9.5, compiled for the PC
+with MSVC (cl) from Visual Studio, rendering pages to PNG files (no board needed).
+
+    python sim_build.py                       build only
+    python sim_build.py run [page ...]        build, render pages (default: all) to <build>/shots
+    python sim_build.py run --out DIR main    render into DIR
+
+Pages: main jog teach interp io alarms settings time servo ethercat system network info, the scenes
+interp_run (a circle traced on Manual > Interpolation) and dropdown (its axis list open), plus the dialogs
+keyboard and keypad (drawn over the page opened before them).
+
+LVGL and the HMI get exactly the firmware's configuration: the firmware build's sdkconfig.h is
+copied in (set FW_BUILD, default D:/esp/build/ehmi or C:/esp/build/ehmi). Objects are cached in
+SIM_BUILD (default <drive>:/esp/build/hmi_sim, outside ownCloud).
+"""
+import concurrent.futures
+import glob
+import os
+import shutil
+import struct
+import subprocess
+import sys
+import zlib
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+FW = os.path.normpath(os.path.join(HERE, "..", ".."))
+LVGL = os.path.join(FW, "managed_components", "lvgl__lvgl")
+HMI = os.path.join(FW, "components", "hmi")
+DRIVE = "D:" if os.path.isdir("D:/esp") else "C:"
+FW_BUILD = os.environ.get("FW_BUILD", DRIVE + "/esp/build/ehmi")
+BUILD = os.environ.get("SIM_BUILD", DRIVE + "/esp/build/hmi_sim")
+EXE = os.path.join(BUILD, "hmi_sim.exe")
+W, H = 1024, 600
+
+# Firmware HMI files that need the real board (display start, frame buffer, touch log, PSRAM heap):
+# sim_main.c and sim_fake.c stand in for what the pages use from them.
+HMI_SKIP = {"hmi.c", "hmi_cpu.c", "hmi_screenshot.c", "hmi_touchlog.c", "hmi_lv_mem.c"}
+
+# Machine code that runs unchanged in the simulator (catalog, topology rules, parameters, alarms).
+REAL = ["ecat/ecat_catalog.c", "ecat/ecat_catalog_gen.c", "ecat/ecat_topology.c", "machine/machine_params.c",
+        "machine/machine_alarm.c"]
+
+INCLUDES = [
+    os.path.join(HERE, "include"),
+    BUILD,  # sdkconfig_fw.h
+    os.path.join(HMI, "include"),
+    HMI,
+    os.path.join(FW, "components", "ecat", "include"),
+    os.path.join(FW, "components", "machine", "include"),
+    os.path.join(FW, "components", "net", "include"),
+    LVGL,
+    os.path.join(LVGL, "src"),
+]
+DEFINES = [
+    "LV_CONF_KCONFIG_EXTERNAL_INCLUDE=<sdkconfig.h>",
+    "_CRT_SECURE_NO_WARNINGS",
+    "_USE_MATH_DEFINES",
+]
+CFLAGS = ["/nologo", "/c", "/Od", "/Z7", "/std:c17", "/Zc:preprocessor", "/utf-8", "/W0", "/FIsim_compat.h",
+          "/experimental:c11atomics"]
+
+
+def find_vs():
+    roots = glob.glob(r"C:\Program Files\Microsoft Visual Studio\*\*") + glob.glob(
+        r"C:\Program Files (x86)\Microsoft Visual Studio\*\*")
+    for r in sorted(roots, reverse=True):
+        cls = sorted(glob.glob(os.path.join(r, "VC", "Tools", "MSVC", "*", "bin", "Hostx64", "x64", "cl.exe")))
+        devcmd = os.path.join(r, "Common7", "Tools", "VsDevCmd.bat")
+        if cls and os.path.isfile(devcmd):
+            return cls[-1], devcmd
+    sys.exit("Visual Studio with the C++ tools (cl.exe) not found")
+
+
+def vs_env(devcmd):
+    cache = os.path.join(BUILD, "vsenv.txt")
+    # A cache copied from another PC or user sets TEMP to a folder that does not exist here, and cl
+    # then fails with D8050 on every file.
+    own = "USERPROFILE=%s\n" % os.environ.get("USERPROFILE", "")
+    if os.path.isfile(cache) and own not in open(cache).readlines():
+        os.remove(cache)
+    if not os.path.isfile(cache):
+        out = subprocess.run('cmd /c ""%s" -arch=x64 -host_arch=x64 -no_logo && set"' % devcmd, capture_output=True,
+                             text=True, shell=True).stdout
+        with open(cache, "w") as f:
+            f.write(out)
+    env = dict(os.environ)
+    for line in open(cache):
+        if "=" in line:
+            k, v = line.rstrip("\n").split("=", 1)
+            env[k] = v
+    return env
+
+
+def sources():
+    lv = glob.glob(os.path.join(LVGL, "src", "**", "*.c"), recursive=True)
+    hmi = [p for p in glob.glob(os.path.join(HMI, "*.c")) if os.path.basename(p) not in HMI_SKIP]
+    sim = glob.glob(os.path.join(HERE, "*.c")) + [os.path.join(BUILD, "sim_fonts.c")]
+    real = [os.path.join(FW, "components", c) for c in REAL]
+    return lv, hmi + sim + real
+
+
+def newest(paths):
+    return max((os.path.getmtime(p) for p in paths if os.path.isfile(p)), default=0)
+
+
+def obj_path(src):
+    base = FW if os.path.normcase(src).startswith(os.path.normcase(FW)) else BUILD
+    rel = os.path.relpath(src, base).replace("\\", "/")
+    return os.path.join(BUILD, "obj", rel.replace("/", "__") + ".obj")
+
+
+def write_fonts():
+    """The TTF files as the arrays hmi_theme.c declares (EMBED_FILES on the board). MSVC places
+    .rdata$<x> pieces in name order, so each _end array follows its _start array."""
+    path = os.path.join(BUILD, "sim_fonts.c")
+    lines = ["/* Generated by sim_build.py from components/hmi/fonts */"]
+    for name, sym, sec in (("OpenSans-Regular", "open_sans_regular", "hmi_f1"),
+                           ("OpenSans-SemiBold", "open_sans_semibold", "hmi_f2")):
+        data = open(os.path.join(HMI, "fonts", name + ".ttf"), "rb").read()
+        lines.append('#pragma section(".rdata$%sa", read)' % sec)
+        lines.append('#pragma section(".rdata$%sb", read)' % sec)
+        lines.append('__declspec(allocate(".rdata$%sa")) const unsigned char %s_start[%d] = {' % (sec, sym, len(data)))
+        for i in range(0, len(data), 32):
+            lines.append(",".join(str(b) for b in data[i:i + 32]) + ",")
+        lines.append("};")
+        lines.append('__declspec(allocate(".rdata$%sb")) const unsigned char %s_end[1] = {0};' % (sec, sym))
+    text = "\n".join(lines) + "\n"
+    if not os.path.isfile(path) or open(path).read() != text:
+        with open(path, "w") as f:
+            f.write(text)
+
+
+def build():
+    os.makedirs(os.path.join(BUILD, "obj"), exist_ok=True)
+    fw_cfg = os.path.join(FW_BUILD, "config", "sdkconfig.h")
+    if not os.path.isfile(fw_cfg):
+        sys.exit("Build the firmware first: %s is missing" % fw_cfg)
+    dst_cfg = os.path.join(BUILD, "sdkconfig_fw.h")
+    if not os.path.isfile(dst_cfg) or open(fw_cfg).read() != open(dst_cfg).read():
+        shutil.copyfile(fw_cfg, dst_cfg)
+    write_fonts()
+    cl, devcmd = find_vs()
+    env = vs_env(devcmd)
+
+    common = CFLAGS + ["/I" + i for i in INCLUDES] + ["/D" + d for d in DEFINES]
+    lv, app = sources()
+    headers = glob.glob(os.path.join(HERE, "include", "**", "*.h"), recursive=True) + \
+        glob.glob(os.path.join(HMI, "**", "*.h"), recursive=True) + \
+        glob.glob(os.path.join(FW, "components", "*", "include", "*.h")) + [dst_cfg]
+    lv_dep = os.path.getmtime(dst_cfg)
+    app_dep = newest(headers)
+    jobs = []
+    for src in lv + app:
+        obj = obj_path(src)
+        dep = lv_dep if src in lv else app_dep
+        if not os.path.isfile(obj) or os.path.getmtime(obj) < max(os.path.getmtime(src), dep):
+            jobs.append((src, obj))
+    errors = []
+
+    def compile_one(job):
+        src, obj = job
+        r = subprocess.run([cl] + common + ["/Fo" + obj, src], capture_output=True, text=True, env=env)
+        if r.returncode != 0:
+            errors.append((src, r.stdout + r.stderr))
+
+    if jobs:
+        print("compiling %d file(s)..." % len(jobs))
+        with concurrent.futures.ThreadPoolExecutor(os.cpu_count() or 4) as ex:
+            list(ex.map(compile_one, jobs))
+    for src, msg in errors[:8]:
+        print("--- %s\n%s" % (src, msg[:3000]))
+    if errors:
+        sys.exit("%d file(s) failed" % len(errors))
+    objs = [obj_path(s) for s in lv + app]
+    if jobs or not os.path.isfile(EXE):
+        rsp = os.path.join(BUILD, "link.rsp")
+        with open(rsp, "w") as f:
+            f.write("\n".join('"%s"' % o for o in objs))
+        r = subprocess.run([cl, "/nologo", "/Z7", "/Fe" + EXE, "@" + rsp, "/link", "/SUBSYSTEM:CONSOLE", "/DEBUG",
+                            "/INCREMENTAL:NO"], capture_output=True, text=True, env=env)
+        if r.returncode != 0:
+            print(r.stdout[-8000:] + r.stderr[-3000:])
+            sys.exit("link failed")
+    print("built", EXE)
+
+
+def write_png(path, raw):
+    rgb = bytearray(W * H * 3)
+    o = 0
+    for (p,) in struct.iter_unpack("<H", raw):
+        rgb[o] = ((p >> 11) * 527 + 23) >> 6
+        rgb[o + 1] = (((p >> 5) & 63) * 259 + 33) >> 6
+        rgb[o + 2] = ((p & 31) * 527 + 23) >> 6
+        o += 3
+
+    def chunk(tag, body):
+        return struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body) & 0xFFFFFFFF)
+
+    rows = b"".join(b"\x00" + bytes(rgb[y * W * 3:(y + 1) * W * 3]) for y in range(H))
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0)) +
+                chunk(b"IDAT", zlib.compress(rows, 6)) + chunk(b"IEND", b""))
+
+
+def run(args):
+    out = os.path.join(BUILD, "shots")
+    if args[:1] == ["--out"]:
+        out, args = args[1], args[2:]
+    os.makedirs(out, exist_ok=True)
+    r = subprocess.run([EXE, out] + args, capture_output=True, text=True)
+    sys.stdout.write(r.stdout)
+    sys.stderr.write(r.stderr)
+    if r.returncode != 0:
+        sys.exit("simulator failed (%d)" % r.returncode)
+    for raw in sorted(glob.glob(os.path.join(out, "*.raw"))):
+        png = raw[:-4] + ".png"
+        write_png(png, open(raw, "rb").read())
+        os.remove(raw)
+        print(png)
+
+
+if __name__ == "__main__":
+    build()
+    if sys.argv[1:2] == ["run"]:
+        run(sys.argv[2:])

@@ -1,0 +1,65 @@
+menu "SOEM EtherCAT master"
+
+    config SOEM_MAXSLAVE
+        int "Maximum number of slaves"
+        range 1 200
+        default 32
+        help
+            Size of the slave list. Each entry costs roughly 0.5 KB of RAM.
+
+    config SOEM_MAXGROUP
+        int "Maximum number of slave groups"
+        range 1 8
+        default 2
+
+    config SOEM_MAXBUF
+        int "Frame buffers per channel"
+        range 4 32
+        default 16
+        help
+            Number of frames that can be in flight at once (TX + RX buffers each).
+
+    config SOEM_MBXPOOLSIZE
+        int "Mailboxes in pool"
+        range 4 64
+        default 16
+        help
+            Each mailbox is about 1.5 KB.
+
+    config SOEM_TIMEOUTRET_US
+        int "Frame return timeout (us)"
+        range 200 20000
+        default 2000
+        help
+            Time to wait for a sent frame to come back before giving up.
+
+    config SOEM_RX_QUEUE_LEN
+        int "EMAC to SOEM RX queue length (frames)"
+        range 4 128
+        default 32
+
+    config SOEM_RT_CORE
+        int "Core for real-time threads"
+        range 0 1
+        default 1
+        help
+            Core used by osal_thread_create_rt(). Ethernet and the EtherCAT cycle should
+            run on this core; LVGL and Wi-Fi on the other one.
+
+    config SOEM_RT_TASK_PRIO
+        int "Priority of real-time threads"
+        range 1 24
+        default 19
+        help
+            Keep it below the EMAC RX task priority on the same core.
+
+    config SOEM_WORKER_TASK_PRIO
+        int "Priority of worker threads"
+        range 1 24
+        default 5
+
+    config SOEM_DEBUG
+        bool "Enable SOEM debug prints (EC_DEBUG)"
+        default n
+
+endmenu
