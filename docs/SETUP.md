@@ -40,6 +40,30 @@ Các lỗi khác gặp trên máy thứ ba (2026-10-12):
 - **`.component_hash ... does not exist`:** `firmware/managed_components` là thư mục thường trong ownCloud và đã được ownCloud tải về từ máy khác. ownCloud không đồng bộ file ẩn (tên bắt đầu bằng dấu chấm), nên mất `.component_hash`. Đã sửa như mục 1: chuyển thư mục cũ sang `D:\esp\managed\ehmi_from_owncloud_20261012` và tạo junction `managed_components` → `D:\esp\managed\ehmi`.
 - **Simulator: `cl : Command line error D8050` trên mọi file:** `D:\esp\build\hmi_sim\vsenv.txt` được chép từ máy khác, đặt `TEMP` thành `C:\Users\Tuan\...`. `sim_build.py` giờ tự tạo lại cache khi `USERPROFILE` khác.
 
+### Dự án ra khỏi ownCloud, sao lưu bằng git (2026-10-12)
+
+ownCloud làm mất file: file ảo không đọc được khi client tắt, và file ẩn (tên bắt đầu bằng dấu chấm) không bao giờ được đồng bộ. Vì vậy dự án được chuyển ra ngoài ownCloud, và ownCloud chỉ giữ bản sao lưu git.
+
+| Thứ | Vị trí |
+|---|---|
+| Thư mục làm việc (máy thứ ba) | `D:\Projects\EthercatHMI`. `firmware/managed_components` là thư mục thường, git bỏ qua. |
+| Repo sao lưu trong ownCloud (remote `owncloud`) | `D:\ownCloud\Tuan\Backup\EthercatHMI.git` (repo bare, ownCloud đưa lên server) |
+| Bản sao thứ hai, cùng ổ, ngoài ownCloud (remote `backup`) | `D:\esp\backup\EthercatHMI.git` |
+| Git | MinGit 2.56 ở `D:\esp\git\cmd` (đã thêm vào PATH của user) |
+| Bản cũ, không sửa nữa | `D:\ownCloud\Tuan\EthercatHMI` |
+
+- Sau mỗi thay đổi: `git add -A`, `git commit -m "..."`, `git push`. Remote `owncloud` có hai push URL nên một lần `git push` ghi vào cả hai repo sao lưu.
+- **Chỉ push từ một máy tại một thời điểm.** Trước khi chuyển sang máy khác, đợi ownCloud báo đồng bộ xong. Hai máy cùng push vào repo bare đang đồng bộ có thể tạo file xung đột trong `refs/`.
+- Máy khác lấy code bằng `git clone D:/ownCloud/Tuan/Backup/EthercatHMI.git <thư mục ngoài ownCloud>` (đổi ổ theo máy), không làm việc trực tiếp trong ownCloud nữa.
+- Không đưa vào git, chỉ để trong ownCloud: file zip gói của hãng (222 MB), `vendor/JC1060/`, `PGM/`.
+- Thư mục build `D:\esp\build\ehmi` được tạo lại cho đường dẫn mới. Khi localhost hỏng (xem trên), cấu hình bằng:
+  ```powershell
+  . D:\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1
+  cd D:\esp\build\ehmi
+  cmake -G Ninja -DPYTHON_DEPS_CHECKED=1 -DPYTHON=D:\Espressif\tools\python\v5.5.4\venv\Scripts\python.exe -DESP_PLATFORM=1 -DCCACHE_ENABLE=0 D:\Projects\EthercatHMI\firmware
+  ninja
+  ```
+
 Kết nối tới GitHub có lúc bị đứt giữa chừng (`error decoding response body`). EIM tự thử lại 3 lần, mỗi lần tải lại từ đầu. Lần cài này toolchain `riscv32-esp-elf` (673 MB) thành công ở lần thứ 2.
 
 ### Vì sao dùng v5.5.4 mà không dùng bản mới nhất (v6.1)

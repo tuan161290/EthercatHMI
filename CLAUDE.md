@@ -137,20 +137,26 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
 ## Build / flash
 - ESP-IDF **v5.5.4** at `C:\esp\v5.5.4\esp-idf` (installed with EIM; v6.1 is also installed but the vendor BSP does not build on 6.x). Activate with `. C:\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1`.
   - The second PC (DESKTOP-NHHD9F1, project at `D:\OwnCloud\...`) has everything on **D:**: `D:\esp\v5.5.4\esp-idf`, `D:\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1`, build dir `D:\esp\build\ehmi`. Only v5.5.4 is installed there. `flash.ps1` picks C: or D: automatically (`docs/SETUP.md` section 0).
-- The project root is in an ownCloud-synced path with MAX_PATH 260, so **always build out of tree:**
+- Always build out of tree (on the first two PCs the project root is still in an ownCloud-synced path with MAX_PATH 260; `flash.ps1` expects `<drive>:\esp\build\ehmi` everywhere):
   - `idf.py -B C:\esp\build\ehmi build`
   - `idf.py -B C:\esp\build\ehmi -p COMx flash monitor`
 - Flash via the **USB2 "Full Speed" Type-C** (USB-Serial-JTAG). The log and the `ecat>` command console use the same port (`CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG`).
 - `firmware\flash.bat` (logic in `firmware\tools\flash.ps1`, `docs/SETUP.md` 2b) is the user's one-click build/flash/monitor menu. Before any write it checks the chip revision against `sdkconfig` and requires a 16 MB backup per board in `<drive>:\esp\backup\<MAC>\`. Keep `flash.ps1` UTF-8 **with BOM** (Vietnamese strings under PowerShell 5.1).
-- **Git** (since 2026-10-12, because ownCloud loses files): repo at the project root, branch `main`, `.gitignore` at the root.
-  - `.git` exists only on the PC that made it (DESKTOP-2LDQI5D): ownCloud does not sync names starting with a dot.
-  - Remote `backup` = bare repo `D:\esp\backup\EthercatHMI.git`, outside ownCloud but on the same disk. No off-site remote yet.
+- **Git, and the project lives outside ownCloud** (2026-10-12, because ownCloud lost files: virtual files unreadable while the client is off, dot files such as `.component_hash` never synced):
+  - Working copy: `D:\Projects\EthercatHMI` on DESKTOP-2LDQI5D, branch `main`, `.gitignore` at the root.
+  - Remote `owncloud` = bare repo `D:\ownCloud\Tuan\Backup\EthercatHMI.git`. ownCloud uploads it to the server, so this is the off-machine backup. Other PCs `git clone` from it instead of working inside ownCloud.
+  - `git push` writes to two places: the `owncloud` remote has a second push URL, `D:\esp\backup\EthercatHMI.git` (same disk, outside ownCloud; also remote `backup`).
+  - Push from one PC at a time, and let ownCloud finish syncing before switching PCs: two pushes into the synced bare repo can leave conflicting files in `refs/`.
+  - The old copy `D:\ownCloud\Tuan\EthercatHMI` is frozen; do not edit there.
+  - Not in git, kept in ownCloud only: the vendor package zip (222 MB), `vendor/JC1060/`, `PGM/`.
   - Git is MinGit at `D:\esp\git\cmd\git.exe` (also in the user PATH).
+  - `.gitattributes` is `* -text`: files are stored and checked out byte for byte. Git for Windows defaults to `core.autocrlf=true`, which turned every LF file into CRLF in a fresh clone. Most files are LF; SOEM, the ESI files and a few others are CRLF and must stay so.
   - After a change: `git add -A`, `git commit`, `git push`.
 - Keep settings in `sdkconfig.defaults`; do not commit `sdkconfig`, `build/` or `managed_components/`.
   - After changing the defaults, delete `firmware/sdkconfig` so IDF regenerates it.
   - Commit `firmware/dependencies.lock`. Versions are pinned in each component's `idf_component.yml`: LVGL 9.5.0, esp_lvgl_port ~2.8.0 (2.9.0 breaks on IDF 5.5.4), esp_lcd_jd9165 2.0.2, GT911 1.2.1.
-- `firmware/managed_components` is a junction to `C:\esp\managed\ehmi`, which keeps LVGL out of ownCloud (`docs/SETUP.md` section 1).
+- `firmware/managed_components`: on the first PC a junction to `C:\esp\managed\ehmi`, which keeps LVGL out of ownCloud (`docs/SETUP.md` section 1). In `D:\Projects\EthercatHMI` it is a plain folder (git ignores it).
+- On DESKTOP-2LDQI5D loopback TCP may be broken (FortiClient suspected), which makes `idf.py` hang silently. Then configure with `cmake -G Ninja -DPYTHON_DEPS_CHECKED=1 -DPYTHON=<venv python> -DESP_PLATFORM=1 -DCCACHE_ENABLE=0 D:\Projects\EthercatHMI\firmware` in `D:\esp\build\ehmi`, build with `ninja`, flash with `python -m esptool ... write_flash "@flash_args"` (`docs/SETUP.md` section 0).
 - Partition table: `firmware/partitions.csv`, with a 6 MB app, nvs at 0x9000 and `mstore` (machine store, 512 KB) at 0x610000.
 
 ## Board facts that are easy to get wrong

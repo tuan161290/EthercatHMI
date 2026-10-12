@@ -1,0 +1,3 @@
+# Store and check out every file byte for byte. Git for Windows defaults to core.autocrlf=true,
+# which rewrote every LF file as CRLF in a fresh clone (2026-10-12).
+* -text
