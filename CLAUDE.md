@@ -142,6 +142,11 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
   - `idf.py -B C:\esp\build\ehmi -p COMx flash monitor`
 - Flash via the **USB2 "Full Speed" Type-C** (USB-Serial-JTAG). The log and the `ecat>` command console use the same port (`CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG`).
 - `firmware\flash.bat` (logic in `firmware\tools\flash.ps1`, `docs/SETUP.md` 2b) is the user's one-click build/flash/monitor menu. Before any write it checks the chip revision against `sdkconfig` and requires a 16 MB backup per board in `<drive>:\esp\backup\<MAC>\`. Keep `flash.ps1` UTF-8 **with BOM** (Vietnamese strings under PowerShell 5.1).
+- **Git** (since 2026-10-12, because ownCloud loses files): repo at the project root, branch `main`, `.gitignore` at the root.
+  - `.git` exists only on the PC that made it (DESKTOP-2LDQI5D): ownCloud does not sync names starting with a dot.
+  - Remote `backup` = bare repo `D:\esp\backup\EthercatHMI.git`, outside ownCloud but on the same disk. No off-site remote yet.
+  - Git is MinGit at `D:\esp\git\cmd\git.exe` (also in the user PATH).
+  - After a change: `git add -A`, `git commit`, `git push`.
 - Keep settings in `sdkconfig.defaults`; do not commit `sdkconfig`, `build/` or `managed_components/`.
   - After changing the defaults, delete `firmware/sdkconfig` so IDF regenerates it.
   - Commit `firmware/dependencies.lock`. Versions are pinned in each component's `idf_component.yml`: LVGL 9.5.0, esp_lvgl_port ~2.8.0 (2.9.0 breaks on IDF 5.5.4), esp_lcd_jd9165 2.0.2, GT911 1.2.1.
