@@ -11,9 +11,10 @@
  * Frames: sensor -> CSI -> ISP (RGB565 1920x1080, CAP_BUFS buffers of esp_video) -> PPA (scaled to the
  * chosen size and mirrored if asked; skipped at full size) -> hardware JPEG, at most
  * CONFIG_CAMERA_MAX_FPS a second -> one of JPEG_BUFS buffers. The stream tasks (one per open
- * request, stacks in PSRAM) always send the newest JPEG, so a slow viewer skips frames instead of
- * queueing them. A JPEG buffer is never overwritten while a task sends it: every task holds at most
- * one, so N_WORKERS + 1 buffers always leave one free for the encoder.
+ * request, stacks in PSRAM) and the push to a server (camera_push.c) always send the newest JPEG, so
+ * a slow viewer skips frames instead of queueing them. A JPEG buffer is never overwritten while a
+ * task sends it: every sender holds at most one, so N_WORKERS + 2 buffers (stream tasks, push, newest)
+ * always leave one free for the encoder.
  *
  * HTTP requests are handed from the server task to the stream tasks as async requests
  * (httpd_req_async_handler_begin), so a running stream never blocks the server.
@@ -28,6 +29,7 @@
 #include <unistd.h>
 #include "board_camera.h"
 #include "camera.h"
+#include "camera_internal.h"
 #include "driver/jpeg_encode.h"
 #include "driver/ppa.h"
 #include "esp_check.h"
@@ -60,7 +62,7 @@ static const char *TAG = "camera";
 #define POLL_MS         250   /* camera task while the sensor is stopped */
 #define CAP_BUFS        2     /* as the vendor demo (video_lcd_display EXAMPLE_CAM_BUF_COUNT) */
 #define N_WORKERS       (CONFIG_CAMERA_MAX_VIEWERS + 1) /* streams plus one snapshot */
-#define JPEG_BUFS       (N_WORKERS + 1)
+#define JPEG_BUFS       (N_WORKERS + 2) /* senders, push, and one for the encoder */
 #define JPEG_TIMEOUT_MS 200
 #define DQBUF_TIMEOUT_S 1
 #define DQBUF_FAILS_MAX 3     /* timeouts in a row before the camera counts as failed */
@@ -123,6 +125,7 @@ static int s_newest = -1; /* slot of the newest frame */
 static uint32_t s_seq;    /* its number */
 static uint8_t s_viewers; /* stream requests taken (queued or sending) */
 static uint8_t s_busy;    /* stream tasks taken */
+static bool s_push_busy;  /* a push session runs (camera_push.c) */
 static bool s_serving;    /* stream tasks may send; false while the server stops */
 static TickType_t s_want_until; /* a snapshot wants frames until then */
 static uint32_t s_sent;   /* bytes sent since the last rate sample */
@@ -250,6 +253,53 @@ static bool serving(void)
 static void wait_frame(void)
 {
     (void)xEventGroupWaitBits(s_ev, EV_FRAME, pdFALSE, pdFALSE, pdMS_TO_TICKS(FRAME_WAIT_MS));
+}
+
+/* ---- For the push (camera_internal.h) ---- */
+
+bool camera_push_enter(void)
+{
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    const bool ok = s_serving && !s_push_busy;
+    s_push_busy |= ok;
+    xSemaphoreGive(s_lock);
+    if (ok) {
+        wake(); /* starts the sensor */
+    }
+    return ok;
+}
+
+void camera_push_leave(void)
+{
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_push_busy = false;
+    xSemaphoreGive(s_lock);
+    wake();
+}
+
+bool camera_serving(void)
+{
+    return serving();
+}
+
+int camera_frame_take(uint32_t *seen, const uint8_t **buf, size_t *len)
+{
+    const int slot = slot_take_newer(seen);
+    if (slot >= 0) {
+        *buf = s_jpeg[slot].buf; /* held: the encoder leaves it alone until released */
+        *len = s_jpeg[slot].len;
+    }
+    return slot;
+}
+
+void camera_frame_release(int slot)
+{
+    slot_release(slot, 0); /* the push counts its own bytes */
+}
+
+void camera_frame_wait(uint32_t ms)
+{
+    (void)xEventGroupWaitBits(s_ev, EV_FRAME, pdFALSE, pdFALSE, pdMS_TO_TICKS(ms));
 }
 
 static void send_stream(httpd_req_t *req)
@@ -427,9 +477,9 @@ static bool streams_stop(void)
 {
     xSemaphoreTake(s_lock, portMAX_DELAY);
     s_serving = false;
-    const bool idle = s_busy == 0;
+    const bool idle = s_busy == 0 && !s_push_busy;
     xSemaphoreGive(s_lock);
-    return idle; /* each stream task ends within FRAME_WAIT_MS plus a send timeout */
+    return idle; /* each stream task (and the push) ends within FRAME_WAIT_MS plus a send timeout */
 }
 
 /** @return true once stopped; false while a stream task still finishes (try again later) */
@@ -758,7 +808,7 @@ static void apply(void)
     const camera_res_t res = s_res;
     const bool retry = s_retry;
     s_retry = false;
-    const bool demand = s_viewers > 0 || (int32_t)(s_want_until - xTaskGetTickCount()) > 0;
+    const bool demand = s_viewers > 0 || s_push_busy || (int32_t)(s_want_until - xTaskGetTickCount()) > 0;
     xSemaphoreGive(s_lock);
 
     if (!on) {
@@ -885,7 +935,7 @@ esp_err_t camera_start(void)
     }
     s_win_start_us = esp_timer_get_time();
     wake();
-    return ESP_OK;
+    return camera_push_start();
 }
 
 void camera_status(camera_status_t *out)
@@ -901,6 +951,7 @@ void camera_status(camera_status_t *out)
     out->res = s_res;
     out->viewers = s_viewers;
     xSemaphoreGive(s_lock);
+    camera_push_status(out);
 }
 
 static void cfg_save(void)

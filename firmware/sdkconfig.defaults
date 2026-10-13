@@ -93,6 +93,10 @@ CONFIG_CAM_CTRL_SPI_ENABLE=n
 # The stream needs more data in flight on one TCP connection than lwIP's default 4 x MSS (about
 # 5 Mbit/s at a 10 ms round trip). lwIP memory is in PSRAM (CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP).
 CONFIG_LWIP_TCP_SND_BUF_DEFAULT=32768
+# The camera push to the server over HTTPS (camera_push.c): each TLS connection needs mbedTLS's
+# 16 KB + 4 KB record buffers (SSL_IN/OUT_CONTENT_LEN) plus the handshake state, which internal RAM
+# does not have while streaming (54-61 KB free, docs/CAMERA.md).
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
 
 # LVGL 9.5 (components/hmi, docs/HMI_THEME.md)
 CONFIG_LV_COLOR_DEPTH_16=y

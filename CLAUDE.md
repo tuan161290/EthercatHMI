@@ -136,9 +136,22 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
     - Open:
       - The picture is mirrored left to right (confirmed by text on the image). `CONFIG_CAMERA_HMIRROR` mirrors it in the PPA (untested).
       - The effect on EtherCAT in OP is not measured yet.
-    - Server side: `server/camera/` (go2rtc plus an ffmpeg recorder for TrueNAS; not run yet). It pulls from the HMI's address, so the NAS needs a LAN or VPN route to the HMI.
+    - **Push to the server** (`camera_push.c`, 2026-10-13). The user's TrueNAS is at home and reached through DDNS.
+      - Settings › Camera › Send to server (key `campush`: on, URL, user, password in plain text). Console `cam push ...`.
+      - Task `cam_push` (core 0, 8 KB PSRAM stack) sends one endless chunked HTTP(S) POST of back-to-back JPEGs to go2rtc's `/api/stream.mjpeg?dst=<stream>` with Basic auth.
+        - go2rtc 1.9.14 splits frames at `FF D9 FF D8` (pkg/magic/mjpeg/producer.go), so there are no multipart headers.
+        - A short GET first catches a wrong login (401).
+        - Retries after 5 s, doubling up to 60 s.
+      - HTTPS is checked against the ESP-IDF certificate bundle (a public CA is needed). `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y` keeps TLS memory out of internal RAM.
+      - Tested on the bench against a Python stand-in for go2rtc: 401, 404 (wrong dst), self-signed TLS refused, 5 frames/s at 640x360 (0.55–0.63 Mbit/s).
+      - Not yet tested against real go2rtc or over the Internet.
+    - Server side, `server/camera/` (not run yet: this PC has no Docker):
+      - `ingest` (go2rtc): the only port forwarded from the Internet. It has a login and `allow_paths: [/api/stream.mjpeg]`, so stream editing and exec sources are not reachable.
+      - `go2rtc` (LAN): pulls from ingest and serves the web page and RTSP.
+      - `recorder` (ffmpeg): writes 10-minute MP4 files.
+      - With HTTPS behind nginx, request buffering must be off (`docs/CAMERA.md` 5.4).
   - `main/main.c`: EtherCAT bring-up app (scan → compare → OP or hold in PRE-OP; cyclic PDO, stats), starts the HMI and publishes the bus status to it.
-  - `main/app_console.c`: console commands on USB-Serial-JTAG (`topo`, `scan`, `accept`, `recheck`, `forget yes`, `stop`, `selftest` (topology + axis logic), `panel [new|old]`, `display [bright N | rgb R G B | reset | dim S | off S | wake]`, `axis [n on|off|reset|stop|qstop|home|move|rel|jog]`; `docs/SETUP.md` 7c, `path [stop | line X Y dx dy | cw|ccw X Y i j [deg]] [rev/s] [ms]` (two-axis CSP path in motor revolutions; 7e), `page <name>` (open an HMI page without touch), `cpu [n]` (CPU load and LVGL frames/s), `screenshot` (with `tools/screenshot.py`), `touchlog`, `sdo <pos> <index hex> [sub]` and `sdo <pos> rack` (CoE reads through the SDO worker, with the abort code), `store [test]` (machine store keys and space; `test` times ten 1 KB saves), `clock [YYYY-MM-DD HH:MM[:SS]]`, `mem`, `wifi [on|off|scan|join <ssid> [pw]|forget|tasks]`, `cam [on|off|size WxH]` (camera state, address, frames/s, picture size; `docs/CAMERA.md`), `ntp [on|off|server <name>|sync]`, `alarms [ack]`).
+  - `main/app_console.c`: console commands on USB-Serial-JTAG (`topo`, `scan`, `accept`, `recheck`, `forget yes`, `stop`, `selftest` (topology + axis logic), `panel [new|old]`, `display [bright N | rgb R G B | reset | dim S | off S | wake]`, `axis [n on|off|reset|stop|qstop|home|move|rel|jog]`; `docs/SETUP.md` 7c, `path [stop | line X Y dx dy | cw|ccw X Y i j [deg]] [rev/s] [ms]` (two-axis CSP path in motor revolutions; 7e), `page <name>` (open an HMI page without touch), `cpu [n]` (CPU load and LVGL frames/s), `screenshot` (with `tools/screenshot.py`), `touchlog`, `sdo <pos> <index hex> [sub]` and `sdo <pos> rack` (CoE reads through the SDO worker, with the abort code), `store [test]` (machine store keys and space; `test` times ten 1 KB saves), `clock [YYYY-MM-DD HH:MM[:SS]]`, `mem`, `wifi [on|off|scan|join <ssid> [pw]|forget|tasks]`, `cam [on|off|size WxH|push [on|off|url <address>|login <user> [pw]]]` (camera and push state, address, frames/s, picture size; `docs/CAMERA.md`; the console line is 256 characters for the push URL), `ntp [on|off|server <name>|sync]`, `alarms [ack]`).
     - The LCD panel variant is stored in NVS and takes effect after a reset.
 - `docs/BOARD.md` has the reconciled pin map and subsystems. `docs/ETHERCAT_PLAN.md` has the architecture and phases. `docs/SETUP.md` covers toolchain, build, flashing and smoke tests. Read them before touching hardware code.
 - `docs/SLAVES_LEADSHINE.md` covers the slaves. Read it before writing any slave configuration code.

@@ -545,7 +545,7 @@ const char *net_state_text(net_wifi_state_t s)
 
 static camera_status_t s_cam = {
     .on = true, .res = CAMERA_RES_1280X720, .state = CAMERA_STREAMING, .sensor = "OV02C10", .width = 1280, .height = 720, .port = 80,
-    .max_fps = 5, .viewers = 1, .fps_x10 = 50, .kbit_s = 1350, .frame_bytes = 33 * 1024, .frames = 18342,
+    .max_fps = 5, .viewers = 1, .fps_x10 = 50, .kbit_s = 1350, .frame_bytes = 33 * 1024, .push = CAMERA_PUSH_SENDING, .push_kbit_s = 1310, .frames = 18342,
 };
 
 void camera_status(camera_status_t *out)
@@ -572,6 +572,43 @@ void camera_res_size(camera_res_t res, uint16_t *w, uint16_t *h)
     static const uint16_t size[][2] = {{1920, 1080}, {1280, 720}, {1024, 576}, {720, 480}, {640, 360}};
     *w = size[(unsigned)res < 5 ? res : 0][0];
     *h = size[(unsigned)res < 5 ? res : 0][1];
+}
+
+static camera_push_cfg_t s_push = {
+    .on = true, .url = "https://home.example.net:8555/api/stream.mjpeg?dst=ehmi", .user = "ehmi",
+    .has_password = true,
+};
+
+void camera_push_get(camera_push_cfg_t *out)
+{
+    *out = s_push;
+}
+
+esp_err_t camera_push_set_on(bool on)
+{
+    s_push.on = on;
+    s_cam.push = on ? CAMERA_PUSH_SENDING : CAMERA_PUSH_OFF;
+    return ESP_OK;
+}
+
+esp_err_t camera_push_set(const char *url, const char *user, const char *password)
+{
+    if (url) {
+        strlcpy(s_push.url, url, sizeof(s_push.url));
+    }
+    if (user) {
+        strlcpy(s_push.user, user, sizeof(s_push.user));
+    }
+    if (password) {
+        s_push.has_password = password[0] != 0;
+    }
+    return ESP_OK;
+}
+
+const char *camera_push_state_text(camera_push_state_t s)
+{
+    static const char *const t[] = {"Off", "Waiting", "Connecting", "Sending", "Not connected"};
+    return (unsigned)s < 5 ? t[s] : "?";
 }
 
 const char *camera_state_text(camera_state_t s)

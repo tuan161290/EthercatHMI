@@ -8,8 +8,10 @@
  *   /              a page with the live picture
  *   /stream        MJPEG (multipart/x-mixed-replace), at most CONFIG_CAMERA_MAX_FPS frames/s
  *   /snapshot.jpg  one JPEG
- * The sensor only runs while someone watches (or asks for a snapshot), so an idle camera costs no
- * memory bandwidth. Off, the server is stopped and the camera's memory is freed.
+ * It can also push its frames to go2rtc on a server reached through the Internet (camera_push_*,
+ * camera_push.c), so nothing needs to reach into the plant network.
+ * The sensor only runs while someone watches, the push sends or a snapshot is asked for, so an idle
+ * camera costs no memory bandwidth. Off, the server is stopped and the camera's memory is freed.
  *
  * Everything runs on core 0 in the "camera" task and the stream tasks; the public functions only
  * post requests and copy the status.
@@ -50,6 +52,28 @@ typedef enum {
     CAMERA_STREAMING, /*!< sending frames */
 } camera_state_t;
 
+/* ---- Push: the HMI sends its frames to a server (go2rtc) it reaches through the Internet ---- */
+
+#define CAMERA_PUSH_URL_MAX  127
+#define CAMERA_PUSH_USER_MAX 31
+#define CAMERA_PUSH_PASS_MAX 63
+
+typedef enum {
+    CAMERA_PUSH_OFF,        /*!< switched off */
+    CAMERA_PUSH_WAITING,    /*!< on, waiting for the camera, Wi-Fi or a server address (see reason) */
+    CAMERA_PUSH_CONNECTING, /*!< connecting and checking the login */
+    CAMERA_PUSH_SENDING,    /*!< frames go to the server */
+    CAMERA_PUSH_RETRY,      /*!< failed (see reason); tries again by itself, 5 s to 60 s later */
+} camera_push_state_t;
+
+/** Push settings for display; the password is never read back. */
+typedef struct {
+    bool on;
+    char url[CAMERA_PUSH_URL_MAX + 1];   /*!< e.g. https://home.example.net:8555/api/stream.mjpeg?dst=ehmi */
+    char user[CAMERA_PUSH_USER_MAX + 1]; /*!< "" = no login */
+    bool has_password;
+} camera_push_cfg_t;
+
 typedef struct {
     bool on;            /*!< setting */
     camera_res_t res;   /*!< setting */
@@ -64,6 +88,9 @@ typedef struct {
     uint32_t kbit_s;                    /*!< data sent to the viewers over the last second */
     uint32_t frame_bytes;               /*!< size of the last JPEG */
     uint32_t frames;                    /*!< JPEG frames since start-up */
+    camera_push_state_t push;           /*!< push to the server */
+    char push_reason[CAMERA_REASON_MAX + 1]; /*!< why it waits or failed, "" if it does not */
+    uint32_t push_kbit_s;               /*!< sent to the server over the last second */
 } camera_status_t;
 
 /** Load the setting and start the camera task (core 0). The camera starts if it is switched on. */
@@ -86,6 +113,21 @@ void camera_res_size(camera_res_t res, uint16_t *w, uint16_t *h);
 
 /** "Off", "Streaming", ... */
 const char *camera_state_text(camera_state_t s);
+
+/** Push settings (without the password). Any task. */
+void camera_push_get(camera_push_cfg_t *out);
+
+/** Push on or off (saved). It sends only while the camera is on and Wi-Fi is connected. Core 0. */
+esp_err_t camera_push_set_on(bool on);
+
+/**
+ * Server address and login (saved); NULL keeps a field, "" clears it. A running push reconnects.
+ * @return ESP_ERR_INVALID_ARG if the address does not start with http:// or https:// or a field is too long
+ */
+esp_err_t camera_push_set(const char *url, const char *user, const char *password);
+
+/** "Off", "Sending", ... */
+const char *camera_push_state_text(camera_push_state_t s);
 
 #ifdef __cplusplus
 }

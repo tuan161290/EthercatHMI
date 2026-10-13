@@ -1,18 +1,22 @@
-# go2rtc for the EtherCAT HMI camera (docs/CAMERA.md). Copy this file into the dataset mounted as
-# /config by compose.yaml, then set the HMI's address below.
+# go2rtc for the EtherCAT HMI camera, LAN side (docs/CAMERA.md section 5). Copy this file into the
+# dataset that compose.yaml mounts as /config for "go2rtc".
 #
 # go2rtc connects to a source only while something watches it, and only once for every viewer.
-# The recorder in compose.yaml watches ehmi_h264 all the time, so while it runs the HMI streams
-# continuously (as long as the camera is switched on in Settings > Camera).
+# The recorder in compose.yaml watches ehmi_h264 all the time.
 
 streams:
-  # MJPEG from the HMI: the "Stream" line of Settings > Camera
-  ehmi: http://192.168.1.50/stream
+  # Push over the Internet (Settings > Camera > Send to server): taken from the ingest go2rtc
+  # (ingest.yaml) over the compose network. The password is the one in ingest.yaml.
+  ehmi: http://ehmi:ChangeMeToALongRandomPassword@ingest:1984/api/stream.mjpeg?src=ehmi
+  # Or, when the NAS is on the HMI's LAN: pull straight from the HMI instead (the "Stream" line of
+  # Settings > Camera), and drop the ingest service.
+  # ehmi: http://192.168.1.50/stream
+
   # The same picture as H.264 for the recorder, encoded here on the NAS by ffmpeg
   ehmi_h264: ffmpeg:ehmi#video=h264
 
 api:
-  listen: ":1984" # web page: http://<NAS>:1984
+  listen: ":1984" # web page: http://<NAS>:1984 (LAN only: do not forward this port)
 
 rtsp:
   listen: ":8554" # rtsp://<NAS>:8554/ehmi (or ehmi_h264) for VLC or another recorder
