@@ -107,7 +107,7 @@ void hmi_screen_wake(void);
 
 /**
  * Show a page by name, as if it was tapped: main, manual (= jog), teach, interp, io, alarms, settings,
- * time, servo, ethercat, system, network, info. For bench tests from the console. Any task on core 0.
+ * time, servo, ethercat, system, network, info, camera. For bench tests from the console. Any task on core 0.
  * @return false for an unknown name or before hmi_start()
  */
 bool hmi_open_page(const char *name);

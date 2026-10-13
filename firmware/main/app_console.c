@@ -2,6 +2,7 @@
  * Serial console commands (esp_console REPL on the primary console, core 0).
  */
 
+#include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,6 +10,7 @@
 #include <strings.h>
 #include "esp_attr.h"
 #include "app_console.h"
+#include "camera.h"
 #include "ecat_axis.h"
 #include "ecat_busview.h"
 #include "ecat_sdo_service.h"
@@ -49,7 +51,9 @@ static int cmd_mem(int argc, char **argv)
     static const char *const tasks[] = {"ecat",      "emac_rx",    "ecat_chk",  "ecat_mon",  "ecat_sdo",
                                         "alarms",    "taskLVGL",   "net",       "tiT",       "sys_evt",
                                         "esp_timer", "console_repl", "sdio_read", "sdio_write", "sdio_process_rx",
-                                        "sdio_rx_buf", "rpc_rx",   "rpc_tx",    "ipc0",      "ipc1"};
+                                        "sdio_rx_buf", "rpc_rx",   "rpc_tx",    "ipc0",      "ipc1",
+                                        "camera",    "cam_http0",  "cam_http1", "cam_http2", "httpd",
+                                        "isp_task"};
     printf("KB         %9s %9s %9s %9s\n", "free", "lowest", "largest", "total");
     mem_line("Internal", MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     mem_line("PSRAM", MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -835,11 +839,13 @@ static int wifi_scan_print(void)
     return 0;
 }
 
-/* Core and priority of the network tasks: esp_hosted's must be on core 0 (components/net). */
+/* Core and priority of the network and camera tasks: esp_hosted's and esp_video's must be on core 0
+ * (components/net, board_camera.c). */
 static void wifi_tasks_print(void)
 {
     static const char *const names[] = {"sdio_read", "sdio_write", "sdio_process_rx", "sdio_rx_buf", "rpc_rx",
-                                        "rpc_tx", "rpc_supp_cb", "tiT", "sys_evt", "net", "ecat", "emac_rx"};
+                                        "rpc_tx", "rpc_supp_cb", "tiT", "sys_evt", "net", "isp_task", "camera",
+                                        "cam_http0", "httpd", "ecat", "emac_rx"};
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         TaskHandle_t h = xTaskGetHandle(names[i]);
         if (h == NULL) {
@@ -906,6 +912,40 @@ static int cmd_ntp(int argc, char **argv)
         return 1;
     }
     printf("OK; type 'ntp' to follow the state.\n");
+    return 0;
+}
+
+/* ---- Camera (components/camera) ---- */
+
+static int cmd_cam(int argc, char **argv)
+{
+    if (argc == 2 && (strcmp(argv[1], "on") == 0 || strcmp(argv[1], "off") == 0)) {
+        (void)camera_set_on(strcmp(argv[1], "on") == 0);
+        printf("OK; type 'cam' to follow the state.\n");
+        return 0;
+    } else if (argc != 1) {
+        printf("Use: cam | cam on | cam off\n");
+        return 1;
+    }
+    camera_status_t c;
+    camera_status(&c);
+    printf("Camera %s: %s", c.on ? "on" : "off", camera_state_text(c.state));
+    if (c.reason[0]) {
+        printf(" | %s", c.reason);
+    }
+    if (c.sensor[0]) {
+        printf(" | %s %ux%u", c.sensor, c.width, c.height);
+    }
+    printf("\n");
+    net_status_t n;
+    net_status(&n);
+    if (c.state == CAMERA_READY || c.state == CAMERA_STREAMING) {
+        printf("Stream http://%u.%u.%u.%u:%u/stream | snapshot /snapshot.jpg\n", n.ip[0], n.ip[1], n.ip[2], n.ip[3],
+               c.port);
+    }
+    printf("Viewers %u | %u.%u frames/s (at most %u) | %" PRIu32 " kbit/s | last frame %" PRIu32 " KB | %" PRIu32
+           " frames since start-up\n",
+           c.viewers, c.fps_x10 / 10, c.fps_x10 % 10, c.max_fps, c.kbit_s, c.frame_bytes / 1024, c.frames);
     return 0;
 }
 
@@ -984,6 +1024,9 @@ esp_err_t app_console_start(void)
           .func = cmd_wifi },
         { .command = "ntp", .help = "Internet time: 'ntp', 'ntp on|off', 'ntp server pool.ntp.org', 'ntp sync'",
           .func = cmd_ntp },
+        { .command = "cam", .help = "Camera stream over Wi-Fi: 'cam' shows the state, address and frame rate; "
+                                    "'cam on|off' (saved, as Settings > Camera)",
+          .func = cmd_cam },
         { .command = "alarms", .help = "List the current alarms; 'alarms ack' acknowledges all", .func = cmd_alarms },
     };
 

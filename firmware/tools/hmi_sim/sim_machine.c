@@ -22,6 +22,7 @@
 #include "machine_clock.h"
 #include "machine_params.h"
 #include "machine_store.h"
+#include "camera.h"
 #include "net.h"
 
 /* ---- Machine store: RAM only ---- */
@@ -538,6 +539,31 @@ const char *net_state_text(net_wifi_state_t s)
     static const char *const t[] = {"Off",        "Starting",  "Not available",          "Not connected",
                                     "Connecting", "Connected", "Not connected, retrying"};
     return (unsigned)s < 7 ? t[s] : "?";
+}
+
+/* ---- Camera ---- */
+
+static camera_status_t s_cam = {
+    .on = true, .state = CAMERA_STREAMING, .sensor = "OV02C10", .width = 1920, .height = 1080, .port = 80,
+    .max_fps = 5, .viewers = 1, .fps_x10 = 50, .kbit_s = 8450, .frame_bytes = 211 * 1024, .frames = 18342,
+};
+
+void camera_status(camera_status_t *out)
+{
+    *out = s_cam;
+}
+
+esp_err_t camera_set_on(bool on)
+{
+    s_cam.on = on;
+    s_cam.state = on ? CAMERA_STREAMING : CAMERA_OFF;
+    return ESP_OK;
+}
+
+const char *camera_state_text(camera_state_t s)
+{
+    static const char *const t[] = {"Off", "Starting", "Not available", "Waiting for Wi-Fi", "Ready", "Streaming"};
+    return (unsigned)s < 6 ? t[s] : "?";
 }
 
 /* ---- Start-up ---- */

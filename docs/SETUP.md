@@ -487,6 +487,22 @@ Trang **Manual › Interpolation** chạy một đường thẳng hoặc một c
    - `Path not valid (axes, size or position range)`: hai ô chọn cùng một trục, đường ngắn hơn một xung, hoặc vượt quá phạm vi vị trí 32 bit.
    - Mất bus (WKC sai 3 chu kỳ): cả hai servo tắt, giống trang Jog.
 
+## 7f. Smoke test #8 — Camera qua Wi-Fi (code 2026-10-13)
+
+Camera OV02C10 trên FPC2 phát MJPEG qua Wi-Fi. Chi tiết, số đo và cách cài go2rtc trên TrueNAS ở `docs/CAMERA.md`.
+
+1. Wi-Fi phải đang kết nối (Settings › Network, hoặc `wifi`).
+2. Bật camera: công tắc ở **Settings › Camera**, hoặc gõ `cam on` ở console. Gõ `cam`, mong đợi:
+   - dòng `Camera on: Ready | OV02C10 1920x1080`;
+   - dòng `Stream http://<IP>:80/stream`.
+3. Trên PC cùng mạng LAN, mở `http://<IP>/` để xem hình, hoặc `http://<IP>/snapshot.jpg` để lấy một ảnh.
+4. Gõ `wifi tasks`: `isp_task`, `camera`, `cam_http0` và `httpd` phải ở **core 0**.
+5. Khi đang stream, chạy `cam` và `mem`:
+   - khung/s gần bằng 5;
+   - RAM nội trống không xuống quá thấp (lần đo 2026-10-13: thấp nhất 54 KB).
+6. **Còn phải đo:** stream khi bus ở OP với đủ slave. Theo dõi overrun, wake late và RTT trong log thống kê của `ecat`.
+7. Tắt bằng `cam off`. PSRAM trống phải tăng lại khoảng 12 MB (`mem`).
+
 ## 8. (Tùy chọn) Smoke test RS485
 
 Áp dụng cho `uart_echo_rs485`: UART1 TX = 26, RX = 27, 115200 8N1 (`IDF_N/uart_echo_rs485/main/rs485_example.c:28-81`).

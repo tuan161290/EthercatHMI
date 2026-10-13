@@ -1,0 +1,45 @@
+# EtherCAT HMI camera on TrueNAS SCALE: Apps > Discover Apps > (menu) > Install via YAML.
+# docs/CAMERA.md has the steps. Change the two dataset paths and TZ before installing.
+#
+# - go2rtc takes the HMI's MJPEG stream once, shows it at http://<NAS>:1984 and hands H.264 to
+#   the recorder.
+# - recorder writes 10-minute MP4 files (fragmented, so a cut leaves a playable file) and deletes
+#   the ones older than KEEP_DAYS. It uses the ffmpeg inside the go2rtc image.
+
+services:
+  go2rtc:
+    image: alexxit/go2rtc:1.9.14
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+    ports:
+      - "1984:1984" # web page and API
+      - "8554:8554" # RTSP
+    volumes:
+      - /mnt/tank/apps/go2rtc:/config # holds go2rtc.yaml
+
+  recorder:
+    image: alexxit/go2rtc:1.9.14
+    restart: unless-stopped
+    depends_on:
+      - go2rtc
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - KEEP_DAYS=14
+    volumes:
+      - /mnt/tank/camera:/recordings
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        (while true; do
+          find /recordings -type f -name 'ehmi-*.mp4' -mtime +$$KEEP_DAYS -delete
+          sleep 3600
+        done) &
+        while true; do
+          ffmpeg -hide_banner -loglevel warning -rtsp_transport tcp -i rtsp://go2rtc:8554/ehmi_h264 \
+            -c copy -f segment -segment_time 600 -segment_atclocktime 1 -reset_timestamps 1 \
+            -segment_format mp4 -segment_format_options movflags=+frag_keyframe+empty_moov+default_base_moof \
+            -strftime 1 /recordings/ehmi-%Y%m%d-%H%M%S.mp4
+          echo "stream not available (camera off or HMI unreachable); trying again in 10 s"
+          sleep 10
+        done

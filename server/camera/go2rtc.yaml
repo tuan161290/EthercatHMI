@@ -1,0 +1,18 @@
+# go2rtc for the EtherCAT HMI camera (docs/CAMERA.md). Copy this file into the dataset mounted as
+# /config by compose.yaml, then set the HMI's address below.
+#
+# go2rtc connects to a source only while something watches it, and only once for every viewer.
+# The recorder in compose.yaml watches ehmi_h264 all the time, so while it runs the HMI streams
+# continuously (as long as the camera is switched on in Settings > Camera).
+
+streams:
+  # MJPEG from the HMI: the "Stream" line of Settings > Camera
+  ehmi: http://192.168.1.50/stream
+  # The same picture as H.264 for the recorder, encoded here on the NAS by ffmpeg
+  ehmi_h264: ffmpeg:ehmi#video=h264
+
+api:
+  listen: ":1984" # web page: http://<NAS>:1984
+
+rtsp:
+  listen: ":8554" # rtsp://<NAS>:8554/ehmi (or ehmi_h264) for VLC or another recorder

@@ -7,3 +7,6 @@ dependencies:
   espressif/esp_lcd_touch:
     version: "1.2.1"
     public: true
+  # Camera (board_camera.c). 2.1.0 pairs with esp_cam_sensor 2.1.*, the base of the vendor's
+  # OV02C10 driver (components/cam_ov02c10/VENDOR.md); the vendor demo asks for "*".
+  espressif/esp_video: "2.1.0"

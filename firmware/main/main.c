@@ -23,6 +23,7 @@
 #include "app_alarms.h"
 #include "app_console.h"
 #include "board_eth.h"
+#include "camera.h"
 #include "ecat_axis.h"
 #include "ecat_busview.h"
 #include "ecat_coupler.h"
@@ -994,6 +995,11 @@ void app_main(void)
     err = net_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "network start failed (%s)", esp_err_to_name(err));
+    }
+    /* Camera stream over Wi-Fi (core 0); the sensor and its buffers only start when switched on. */
+    err = camera_start();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "camera start failed (%s)", esp_err_to_name(err));
     }
 #if CONFIG_APP_ECAT_CONSOLE
     ESP_ERROR_CHECK(app_console_start());

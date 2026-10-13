@@ -74,6 +74,26 @@ CONFIG_ESP_HOSTED_WIFI_AUTO_CONNECT_ON_STA_START=n
 CONFIG_ESP_HOSTED_CLI_ENABLED=n
 CONFIG_ESP_HOSTED_MEM_MONITOR=n
 
+# Camera on FPC2 (components/camera, board_camera.c, components/cam_ov02c10, docs/CAMERA.md).
+# OV02C10 as the vendor demo video_lcd_display runs it (its sdkconfig lines 2505-2527): 1920x1080
+# RAW10 30 fps on one lane, the vendor's IPA tuning, ISP pipeline controller (auto exposure and
+# white balance).
+CONFIG_CAMERA_OV02C10=y
+CONFIG_CAMERA_OV02C10_AUTO_DETECT_MIPI_INTERFACE_SENSOR=y
+CONFIG_CAMERA_OV02C10_MIPI_RAW10_1920X1080_30FPS_1_LANE=y
+CONFIG_CAMERA_OV02C10_MIPI_DEFAULT_FMT_RAW10_1920X1080_30FPS_1_LANE=y
+CONFIG_CAMERA_OV02C10_ANA_GAIN_PRIORITY=y
+CONFIG_ESP_VIDEO_ENABLE_ISP_PIPELINE_CONTROLLER=y
+# Its task "isp_task" (pinned to core 0 by board_camera.c) with the stack in PSRAM
+CONFIG_ISP_PIPELINE_CONTROLLER_TASK_STACK_USE_PSRAM=y
+# Only the MIPI-CSI camera: no DVP or SPI cameras
+CONFIG_ESP_VIDEO_ENABLE_DVP_VIDEO_DEVICE=n
+CONFIG_CAM_CTRL_DVP_ENABLE=n
+CONFIG_CAM_CTRL_SPI_ENABLE=n
+# The stream needs more data in flight on one TCP connection than lwIP's default 4 x MSS (about
+# 5 Mbit/s at a 10 ms round trip). lwIP memory is in PSRAM (CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP).
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=32768
+
 # LVGL 9.5 (components/hmi, docs/HMI_THEME.md)
 CONFIG_LV_COLOR_DEPTH_16=y
 # Heap in PSRAM first (components/hmi/hmi_lv_mem.c); internal RAM stays for EtherCAT

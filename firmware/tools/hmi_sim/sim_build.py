@@ -5,7 +5,7 @@ with MSVC (cl) from Visual Studio, rendering pages to PNG files (no board needed
     python sim_build.py run [page ...]        build, render pages (default: all) to <build>/shots
     python sim_build.py run --out DIR main    render into DIR
 
-Pages: main jog teach interp io alarms settings time servo ethercat system network info, the scenes
+Pages: main jog teach interp io alarms settings time servo ethercat system network info camera, the scenes
 interp_run (a circle traced on Manual > Interpolation) and dropdown (its axis list open), plus the dialogs
 keyboard and keypad (drawn over the page opened before them).
 
@@ -48,6 +48,7 @@ INCLUDES = [
     os.path.join(FW, "components", "ecat", "include"),
     os.path.join(FW, "components", "machine", "include"),
     os.path.join(FW, "components", "net", "include"),
+    os.path.join(FW, "components", "camera", "include"),
     LVGL,
     os.path.join(LVGL, "src"),
 ]

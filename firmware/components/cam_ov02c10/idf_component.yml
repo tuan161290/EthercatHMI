@@ -1,0 +1,5 @@
+# The vendor driver was written against esp_cam_sensor 2.1.0 (VENDOR.md); esp_video 2.1.0
+# (components/board) needs 2.1.* as well.
+dependencies:
+  idf: ">=5.5,<6.0"
+  espressif/esp_cam_sensor: "2.1.0"
