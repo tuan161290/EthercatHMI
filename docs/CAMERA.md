@@ -76,8 +76,8 @@ Code liên quan:
 
 | Thông báo | Nguyên nhân thường gặp |
 |---|---|
-| `Wrong user or password (HTTP 401)` | User/Password trên HMI khác `ingest.yaml` |
-| `No stream of that name (dst=) on the server (HTTP 404)` | `dst=` trong địa chỉ khác tên stream trong `ingest.yaml` |
+| `Wrong user or password (HTTP 401)` | User/Password trên HMI khác `config/ingest/go2rtc.yaml` |
+| `No stream of that name (dst=) on the server (HTTP 404)` | `dst=` trong địa chỉ khác tên stream trong `config/ingest/go2rtc.yaml` |
 | `Server not reachable (...)` | Sai tên DDNS hoặc port, router chưa forward, NAS tắt |
 | `Server certificate not trusted (needs a public CA)` | HTTPS với chứng chỉ tự ký hoặc hết hạn. Cần chứng chỉ của CA công cộng như Let's Encrypt |
 | `The server's proxy refused the stream (HTTP 413/502/504)` | Reverse proxy chưa tắt request buffering (mục 5.4) |
@@ -217,35 +217,49 @@ Thay cho go2rtc là một script Python trên PC trong cùng LAN. Script làm đ
 ## 5. Cài trên TrueNAS SCALE (push qua DDNS)
 
 ```
-HMI (xưởng) --HTTP(S) POST qua Internet--> DDNS:port --router--> ingest (go2rtc, Internet)
-                                                                     |  mạng nội bộ của compose
-                                                                go2rtc (LAN) --> recorder --> MP4
+HMI (xưởng) --HTTP(S) POST qua Internet--> DDNS:8556 --router--> ingest (go2rtc)
+                                                                   | 127.0.0.1 (chung mạng "net")
+                                                              go2rtc (LAN) --> recorder --> MP4
 ```
 
+App gồm một file YAML (`server/camera/ehmi-camera.yaml`) và một thư mục trên NAS. Mọi container dùng image chính thức `alexxit/go2rtc:1.9.14`, không cần build image riêng.
+
+**Bốn service:**
+- **`net`:** giữ mạng và các port, không làm gì khác. Ba service còn lại nhập vào mạng của nó (`network_mode: service:net`), nên gọi nhau qua 127.0.0.1.
+  - Nó không bao giờ khởi động lại. Vì vậy khi một service khác khởi động lại, các service còn lại không mất mạng.
 - **`ingest`:** go2rtc **duy nhất** mở ra Internet.
   - Có user/mật khẩu.
   - Chỉ bật một đường dẫn, `/api/stream.mjpeg` (`allow_paths`). Trang web, phần sửa stream và nguồn `exec` (chạy được lệnh trên NAS) không tồn tại trên cổng này.
-- **`go2rtc`:** chỉ trong LAN. Lấy hình từ `ingest`, có trang xem `http://<NAS>:1984` và RTSP, và đưa H.264 cho bộ ghi.
+- **`go2rtc`:** chỉ trong LAN.
+  - Lấy hình từ `ingest` qua 127.0.0.1. go2rtc không đòi login với kết nối loopback (`internal/api/api.go`, `isLoopback`), nên mật khẩu chỉ nằm một chỗ.
+  - Có trang xem `http://<NAS>:1984` và RTSP, và đưa H.264 cho bộ ghi.
 - **`recorder`:** ghi MP4 10 phút một file.
+
+**Thư mục trên NAS** (của người dùng hiện tại: `/mnt/FAMILY/TUAN/ESP32CAM`, SMB `\\192.168.31.254\tuan\ESP32CAM`):
+
+| Đường dẫn | Nội dung |
+|---|---|
+| `config/ingest/go2rtc.yaml` | Phía Internet, có login (`server/camera/config/ingest/`) |
+| `config/lan/go2rtc.yaml` | Phía LAN (`server/camera/config/lan/`) |
+| `recordings/` | Video `ehmi-YYYYMMDD-HHMMSS.mp4` |
+| `ehmi-camera.yaml` | Bản sao file YAML của app |
+
+Sửa các file cấu hình qua SMB, rồi khởi động lại app.
 
 ### 5.1 Chuẩn bị
 
 1. **DDNS:** đã có (ví dụ `nha.ddns.net`).
-2. **Router ở nhà:** forward một port TCP (ví dụ 8556) tới IP của NAS, port 8556.
+2. **Router ở nhà:** forward port TCP 8556 tới IP của NAS, port 8556.
    - Chỉ port này. Không forward 1984 hay 8554.
-3. **Dataset trên TrueNAS** (đổi `tank` thành tên pool):
-   - `tank/apps/go2rtc-ingest`
-   - `tank/apps/go2rtc`
-   - `tank/camera` (video)
+3. **Thư mục:** chép `server/camera/config/` vào thư mục app trên NAS, và tạo thư mục `recordings/`.
+4. **Mật khẩu:** đổi `password` trong `config/ingest/go2rtc.yaml` thành một chuỗi dài, chỉ chữ và số.
 
-### 5.2 Cấu hình
+### 5.2 Cài app
 
-1. **`ingest`:** chép `server/camera/ingest.yaml` vào `tank/apps/go2rtc-ingest`, **đổi tên thành `go2rtc.yaml`**. Đổi `password` thành một chuỗi dài, chỉ chữ và số.
-2. **`go2rtc`:** chép `server/camera/go2rtc.yaml` vào `tank/apps/go2rtc`. Thay mật khẩu trong dòng `ehmi: http://ehmi:...@ingest:1984/...` bằng đúng mật khẩu vừa đặt.
-3. **Cài app:** vào **Apps › Discover Apps › ⋮ › Install via YAML**.
-   - Tên: `ehmi-camera`.
-   - Dán nội dung `server/camera/compose.yaml`.
-   - Sửa các đường dẫn `/mnt/tank/...`, port `8556` (nếu đổi), `TZ` và `KEEP_DAYS`.
+1. Vào **Apps › Discover Apps › ⋮ › Install via YAML**.
+2. Tên: `ehmi-camera`.
+3. Dán nội dung `server/camera/ehmi-camera.yaml`.
+4. Nếu thư mục app khác `/mnt/FAMILY/TUAN/ESP32CAM` thì sửa ba dòng `volumes`. Đổi `TZ`, `KEEP_DAYS` hoặc port 8556 nếu cần.
 
 ### 5.3 Trên HMI
 
@@ -253,10 +267,10 @@ HMI (xưởng) --HTTP(S) POST qua Internet--> DDNS:port --router--> ingest (go2r
 2. Ở ô **Send to server**:
    - **Server:** `http://nha.ddns.net:8556/api/stream.mjpeg?dst=ehmi`, hoặc `https://...` nếu có HTTPS (mục 5.4).
    - **User:** `ehmi`.
-   - **Password:** mật khẩu trong `ingest.yaml`.
+   - **Password:** mật khẩu trong `config/ingest/go2rtc.yaml`.
 3. Bật công tắc. Thẻ phải chuyển sang **Sending**.
 4. Mở `http://<NAS>:1984` trong LAN ở nhà: stream `ehmi` là hình trực tiếp. VLC mở được `rtsp://<NAS>:8554/ehmi`.
-5. Video nằm ở `/mnt/tank/camera/ehmi-YYYYMMDD-HHMMSS.mp4`:
+5. Video nằm ở `recordings/ehmi-YYYYMMDD-HHMMSS.mp4`:
    - Mỗi file 10 phút, bắt đầu đúng mốc 10 phút của đồng hồ.
    - Định dạng MP4 phân mảnh, nên file vẫn xem được khi bị ngắt giữa chừng.
    - File cũ hơn `KEEP_DAYS` bị xoá mỗi giờ.
@@ -279,15 +293,15 @@ Cách 1 là **reverse proxy có Let's Encrypt** (ví dụ app Nginx Proxy Manage
    ```
 4. Trên HMI, Server là `https://nha.ddns.net/api/stream.mjpeg?dst=ehmi`.
 
-Cách 2 là để go2rtc tự chạy TLS: trong `ingest.yaml` thêm `tls_listen: ":8443"`, `tls_cert` và `tls_key` (file chứng chỉ, ví dụ lấy từ ACME của TrueNAS). Publish 8443 thay cho 1984.
+Cách 2 là để go2rtc tự chạy TLS: trong `config/ingest/go2rtc.yaml` thêm `tls_listen: ":8443"`, `tls_cert` và `tls_key` (file chứng chỉ, ví dụ lấy từ ACME của TrueNAS, chép vào cùng thư mục). Publish 8443 ở service `net` và forward 8443 thay cho 8556.
 
 Cả hai cách đều **chưa thử**. HMI chỉ chấp nhận chứng chỉ của CA công cộng; chứng chỉ tự ký thì bị báo `Server certificate not trusted`.
 
 ### 5.5 Khi NAS ở cùng LAN với HMI
 
 Không cần `ingest` và push:
-1. Trong `go2rtc.yaml`, cho dòng `ehmi:` lấy thẳng từ HMI (dòng Stream ở Settings › Camera).
-2. Xoá service `ingest` khỏi compose.
+1. Trong `config/lan/go2rtc.yaml`, cho dòng `ehmi:` lấy thẳng từ HMI (dòng Stream ở Settings › Camera).
+2. Có thể xoá service `ingest` khỏi YAML, và bỏ port 8556 ở `net`.
 3. Đặt IP cố định (DHCP reservation) cho HMI.
    - Hostname là `ethercat-hmi`.
    - MAC là MAC Wi-Fi của chip ESP32-C6, khác MAC Ethernet của P4. Xem trong danh sách DHCP của router.
@@ -297,8 +311,9 @@ Không cần `ingest` và push:
 - **Chạy liên tục khi có ghi hình:** service `recorder` lúc nào cũng xem. Khi push đang bật thì HMI vốn đã gửi liên tục.
 - **Tải trên NAS:** go2rtc chuyển MJPEG sang H.264 bằng CPU của NAS (ffmpeg, libx264). Chưa đo tải CPU của NAS, cũng chưa đo dung lượng video mỗi ngày.
 - **Khi không có hình:** camera tắt, push tắt hoặc mất kết nối thì `recorder` ghi log "stream not available" và thử lại sau 10 s.
-- **Image:** `alexxit/go2rtc:1.9.14` (bản phát hành 2026-01-19 trên Docker Hub), có sẵn ffmpeg.
-  - Đã kiểm trong mã nguồn bản này: nhận POST MJPEG, stream rỗng (`internal/streams/stream.go:43`), `allow_paths`, Basic auth (`internal/api/api.go`), và nguồn HTTP có `user:pass@` (`pkg/tcp/request.go`).
+- **Image:** `alexxit/go2rtc:1.9.14` (bản phát hành 2026-01-19 trên Docker Hub), có sẵn ffmpeg. Entrypoint là tini, lệnh mặc định `go2rtc -config /config/go2rtc.yaml` (`docker/Dockerfile:51-55`).
+  - Đã kiểm trong mã nguồn bản này: nhận POST MJPEG, stream rỗng (`internal/streams/stream.go:43`), `allow_paths` và Basic auth (`internal/api/api.go`), loopback không cần login, và listener tắt khi địa chỉ rỗng (`rtsp.go`, `srtp.go`, `webrtc.go`).
+- **Chưa xác nhận:** custom app của TrueNAS có chạy `build:` trong YAML không. App này không cần build nên tránh được câu hỏi đó.
 
 ## 6. Còn mở
 

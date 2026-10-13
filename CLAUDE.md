@@ -145,10 +145,14 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
       - HTTPS is checked against the ESP-IDF certificate bundle (a public CA is needed). `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y` keeps TLS memory out of internal RAM.
       - Tested on the bench against a Python stand-in for go2rtc: 401, 404 (wrong dst), self-signed TLS refused, 5 frames/s at 640x360 (0.55–0.63 Mbit/s).
       - Not yet tested against real go2rtc or over the Internet.
-    - Server side, `server/camera/` (not run yet: this PC has no Docker):
-      - `ingest` (go2rtc): the only port forwarded from the Internet. It has a login and `allow_paths: [/api/stream.mjpeg]`, so stream editing and exec sources are not reachable.
-      - `go2rtc` (LAN): pulls from ingest and serves the web page and RTSP.
-      - `recorder` (ffmpeg): writes 10-minute MP4 files.
+    - Server side, `server/camera/`: TrueNAS custom app `ehmi-camera.yaml` plus `config/{ingest,lan}/go2rtc.yaml`.
+      - Uses the official `alexxit/go2rtc:1.9.14` image; no image build.
+      - Deployed to the user's NAS folder `\\192.168.31.254\tuan\ESP32CAM` = `/mnt/FAMILY/TUAN/ESP32CAM` (2026-10-13). The real password is only there; the repo keeps the placeholder.
+      - Not run yet (this PC has no Docker).
+      - Service `net` (sleep) owns the network and ports. `ingest`, `go2rtc` and `recorder` join it (`network_mode: service:net`) and talk over 127.0.0.1, which go2rtc does not ask to log in, so the password lives in one file.
+      - `ingest` is the only port forwarded from the Internet (8556). It has a login and `allow_paths: [/api/stream.mjpeg]`, so stream editing and exec sources are not reachable.
+      - `go2rtc` (LAN): web page on 1984, RTSP on 8554.
+      - `recorder` (ffmpeg): writes 10-minute MP4 files to `recordings/`.
       - With HTTPS behind nginx, request buffering must be off (`docs/CAMERA.md` 5.4).
   - `main/main.c`: EtherCAT bring-up app (scan → compare → OP or hold in PRE-OP; cyclic PDO, stats), starts the HMI and publishes the bus status to it.
   - `main/app_console.c`: console commands on USB-Serial-JTAG (`topo`, `scan`, `accept`, `recheck`, `forget yes`, `stop`, `selftest` (topology + axis logic), `panel [new|old]`, `display [bright N | rgb R G B | reset | dim S | off S | wake]`, `axis [n on|off|reset|stop|qstop|home|move|rel|jog]`; `docs/SETUP.md` 7c, `path [stop | line X Y dx dy | cw|ccw X Y i j [deg]] [rev/s] [ms]` (two-axis CSP path in motor revolutions; 7e), `page <name>` (open an HMI page without touch), `cpu [n]` (CPU load and LVGL frames/s), `screenshot` (with `tools/screenshot.py`), `touchlog`, `sdo <pos> <index hex> [sub]` and `sdo <pos> rack` (CoE reads through the SDO worker, with the abort code), `store [test]` (machine store keys and space; `test` times ten 1 KB saves), `clock [YYYY-MM-DD HH:MM[:SS]]`, `mem`, `wifi [on|off|scan|join <ssid> [pw]|forget|tasks]`, `cam [on|off|size WxH|push [on|off|url <address>|login <user> [pw]]]` (camera and push state, address, frames/s, picture size; `docs/CAMERA.md`; the console line is 256 characters for the push URL), `ntp [on|off|server <name>|sync]`, `alarms [ack]`).
