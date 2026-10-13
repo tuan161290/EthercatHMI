@@ -544,8 +544,8 @@ const char *net_state_text(net_wifi_state_t s)
 /* ---- Camera ---- */
 
 static camera_status_t s_cam = {
-    .on = true, .state = CAMERA_STREAMING, .sensor = "OV02C10", .width = 1920, .height = 1080, .port = 80,
-    .max_fps = 5, .viewers = 1, .fps_x10 = 50, .kbit_s = 8450, .frame_bytes = 211 * 1024, .frames = 18342,
+    .on = true, .res = CAMERA_RES_1280X720, .state = CAMERA_STREAMING, .sensor = "OV02C10", .width = 1280, .height = 720, .port = 80,
+    .max_fps = 5, .viewers = 1, .fps_x10 = 50, .kbit_s = 1350, .frame_bytes = 33 * 1024, .frames = 18342,
 };
 
 void camera_status(camera_status_t *out)
@@ -558,6 +558,20 @@ esp_err_t camera_set_on(bool on)
     s_cam.on = on;
     s_cam.state = on ? CAMERA_STREAMING : CAMERA_OFF;
     return ESP_OK;
+}
+
+esp_err_t camera_set_res(camera_res_t res)
+{
+    s_cam.res = res;
+    camera_res_size(res, &s_cam.width, &s_cam.height);
+    return ESP_OK;
+}
+
+void camera_res_size(camera_res_t res, uint16_t *w, uint16_t *h)
+{
+    static const uint16_t size[][2] = {{1920, 1080}, {1280, 720}, {1024, 576}, {720, 480}, {640, 360}};
+    *w = size[(unsigned)res < 5 ? res : 0][0];
+    *h = size[(unsigned)res < 5 ? res : 0][1];
 }
 
 const char *camera_state_text(camera_state_t s)

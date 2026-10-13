@@ -1,6 +1,6 @@
 /*
- * Settings > Camera (no mockup; built like Settings > Network): the camera switch, its state and
- * the stream addresses on the left, how the server records it on the right.
+ * Settings > Camera (no mockup; built like Settings > Network): the camera switch, its state, the
+ * picture size and the stream addresses on the left, how the server records it on the right.
  *
  * The camera runs in its own task (components/camera); this page only switches it (camera_set_on,
  * returns at once) and follows camera_status() and the Wi-Fi address in its poll.
@@ -18,8 +18,11 @@
 #define LABEL_W 120
 #define DASH    "\xE2\x80\x94"
 
+/* Same order as camera_res_t */
+static const char s_res_opts[] = "1920 x 1080\n1280 x 720\n1024 x 576\n720 x 480 (sides cut)\n640 x 360";
+
 static EXT_RAM_BSS_ATTR struct {
-    lv_obj_t *sw, *tag, *detail;
+    lv_obj_t *sw, *tag, *detail, *res_val;
     lv_obj_t *stream_val, *snap_val, *picture_val, *rate_val, *data_val;
     lv_obj_t *server_line;
     lv_timer_t *poll;
@@ -38,7 +41,7 @@ static lv_obj_t *dots_label(lv_obj_t *parent, const char *text, int px, hmi_weig
 static lv_obj_t *info_row(lv_obj_t *card, const char *name)
 {
     lv_obj_t *r = hmi_box(card, LV_FLEX_FLOW_ROW, 12);
-    lv_obj_set_size(r, LV_PCT(100), 40);
+    lv_obj_set_size(r, LV_PCT(100), 36);
     lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     hmi_divider_top(r);
     lv_obj_set_width(hmi_label(r, name, HMI_FS_BODY, HMI_REGULAR, HMI_TEXT), LABEL_W);
@@ -54,6 +57,51 @@ static void toggle_cb(lv_event_t *e)
     s_cam.st.on = on; /* shown at once; the poll follows the camera task */
     hmi_switch_set(s_cam.sw, on);
     (void)camera_set_on(on);
+}
+
+static void res_show(void)
+{
+    uint16_t w, h;
+    camera_res_size(s_cam.st.res, &w, &h);
+    char t[24];
+    snprintf(t, sizeof(t), "%u x %u", w, h);
+    hmi_set_text(s_cam.res_val, t);
+}
+
+static void res_set_cb(int index, void *user)
+{
+    (void)user;
+    if (index < 0 || index >= CAMERA_RES_COUNT) {
+        return;
+    }
+    (void)camera_set_res((camera_res_t)index);
+    if (s_cam.res_val) { /* the page may have closed meanwhile */
+        s_cam.st.res = (camera_res_t)index;
+        res_show();
+    }
+}
+
+static void res_cb(lv_event_t *e)
+{
+    (void)e;
+    hmi_choice("Picture size", s_res_opts, s_cam.st.res, res_set_cb, NULL);
+}
+
+/* Name and a combo (as Dim after on the Display page). */
+static void res_field(lv_obj_t *card)
+{
+    lv_obj_t *r = hmi_box(card, LV_FLEX_FLOW_ROW, 12);
+    lv_obj_set_width(r, LV_PCT(100));
+    lv_obj_set_style_pad_bottom(r, 4, 0);
+    lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_width(hmi_label(r, "Picture size", HMI_FS_BODY, HMI_REGULAR, HMI_TEXT), LABEL_W);
+    lv_obj_t *b = hmi_control(r, 0, HMI_TOUCH_H);
+    lv_obj_set_flex_grow(b, 1);
+    lv_obj_set_flex_align(b, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_hor(b, 12, 0);
+    s_cam.res_val = hmi_label(b, "", HMI_FS_BODY, HMI_REGULAR, HMI_TEXT);
+    hmi_icon(b, HMI_ICON_CHEVRON_DOWN, 16, HMI_TEXT_2);
+    lv_obj_add_event_cb(b, res_cb, LV_EVENT_CLICKED, NULL);
 }
 
 /* ---- Camera card ---- */
@@ -83,6 +131,8 @@ static void camera_card(lv_obj_t *body)
     s_cam.detail = dots_label(status, "", HMI_FS_BODY, HMI_REGULAR, HMI_TEXT);
     lv_obj_set_flex_grow(s_cam.detail, 1);
 
+    res_field(card);
+
     s_cam.stream_val = info_row(card, "Stream");
     s_cam.snap_val = info_row(card, "Snapshot");
     s_cam.picture_val = info_row(card, "Picture");
@@ -91,8 +141,8 @@ static void camera_card(lv_obj_t *body)
 
     hmi_spacer(card);
     lv_obj_t *note = hmi_label(card,
-                               "The sensor only runs while someone watches. The picture goes over Wi-Fi; EtherCAT "
-                               "keeps priority, but switch the camera off when nobody needs it.",
+                               "The sensor only runs while someone watches. A smaller picture needs less Wi-Fi; "
+                               "choosing a size restarts the stream.",
                                HMI_FS_SMALL, HMI_REGULAR, HMI_TEXT_2);
     lv_obj_set_width(note, LV_PCT(100));
 }
@@ -197,7 +247,7 @@ static void values_show(const net_status_t *nw)
     hmi_set_text(s_cam.snap_val, serving ? t : DASH);
 
     if (st->sensor[0]) {
-        snprintf(t, sizeof(t), "%s \xC2\xB7 %u x %u \xC2\xB7 JPEG", st->sensor, st->width, st->height);
+        snprintf(t, sizeof(t), "%s \xC2\xB7 JPEG quality %d", st->sensor, CONFIG_CAMERA_JPEG_QUALITY);
     } else {
         snprintf(t, sizeof(t), DASH);
     }
@@ -229,6 +279,7 @@ static void poll_cb(lv_timer_t *t)
     net_status_t nw;
     net_status(&nw);
     hmi_switch_set(s_cam.sw, s_cam.st.on);
+    res_show();
     status_show(&nw);
     values_show(&nw);
 }

@@ -501,7 +501,8 @@ Camera OV02C10 trên FPC2 phát MJPEG qua Wi-Fi. Chi tiết, số đo và cách 
    - khung/s gần bằng 5;
    - RAM nội trống không xuống quá thấp (lần đo 2026-10-13: thấp nhất 54 KB).
 6. **Còn phải đo:** stream khi bus ở OP với đủ slave. Theo dõi overrun, wake late và RTT trong log thống kê của `ecat`.
-7. Tắt bằng `cam off`. PSRAM trống phải tăng lại khoảng 12 MB (`mem`).
+7. Đổi kích thước ảnh bằng ô **Picture size**, hoặc gõ `cam size 1024x576`. Sau đó `http://<IP>/snapshot.jpg` phải trả ảnh đúng kích thước mới.
+8. Tắt bằng `cam off`. PSRAM trống phải tăng lại khoảng 12 MB khi đang ở 1920x1080 (`mem`).
 
 ## 8. (Tùy chọn) Smoke test RS485
 

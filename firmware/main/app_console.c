@@ -923,13 +923,29 @@ static int cmd_cam(int argc, char **argv)
         (void)camera_set_on(strcmp(argv[1], "on") == 0);
         printf("OK; type 'cam' to follow the state.\n");
         return 0;
+    } else if (argc == 3 && strcmp(argv[1], "size") == 0) {
+        for (int i = 0; i < CAMERA_RES_COUNT; i++) {
+            uint16_t w, h;
+            camera_res_size((camera_res_t)i, &w, &h);
+            char t[16];
+            snprintf(t, sizeof(t), "%ux%u", w, h);
+            if (strcmp(t, argv[2]) == 0) {
+                (void)camera_set_res((camera_res_t)i);
+                printf("OK; a running stream restarts with the new size.\n");
+                return 0;
+            }
+        }
+        printf("Sizes: 1920x1080 1280x720 1024x576 720x480 640x360\n");
+        return 1;
     } else if (argc != 1) {
-        printf("Use: cam | cam on | cam off\n");
+        printf("Use: cam | cam on | cam off | cam size <WxH>\n");
         return 1;
     }
     camera_status_t c;
     camera_status(&c);
-    printf("Camera %s: %s", c.on ? "on" : "off", camera_state_text(c.state));
+    uint16_t rw, rh;
+    camera_res_size(c.res, &rw, &rh);
+    printf("Camera %s, size %ux%u: %s", c.on ? "on" : "off", rw, rh, camera_state_text(c.state));
     if (c.reason[0]) {
         printf(" | %s", c.reason);
     }
@@ -1025,7 +1041,7 @@ esp_err_t app_console_start(void)
         { .command = "ntp", .help = "Internet time: 'ntp', 'ntp on|off', 'ntp server pool.ntp.org', 'ntp sync'",
           .func = cmd_ntp },
         { .command = "cam", .help = "Camera stream over Wi-Fi: 'cam' shows the state, address and frame rate; "
-                                    "'cam on|off' (saved, as Settings > Camera)",
+                                    "'cam on|off', 'cam size 1280x720' (saved, as Settings > Camera)",
           .func = cmd_cam },
         { .command = "alarms", .help = "List the current alarms; 'alarms ack' acknowledges all", .func = cmd_alarms },
     };

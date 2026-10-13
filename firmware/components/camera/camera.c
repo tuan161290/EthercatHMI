@@ -8,7 +8,8 @@
  * - a viewer or a snapshot request starts the sensor; STOP_AFTER_MS after the last one it stops;
  * - switched off: stops the server, closes the device, frees the buffers.
  *
- * Frames: sensor -> CSI -> ISP (RGB565, CAP_BUFS buffers of esp_video) -> hardware JPEG, at most
+ * Frames: sensor -> CSI -> ISP (RGB565 1920x1080, CAP_BUFS buffers of esp_video) -> PPA (scaled to the
+ * chosen size and mirrored if asked; skipped at full size) -> hardware JPEG, at most
  * CONFIG_CAMERA_MAX_FPS a second -> one of JPEG_BUFS buffers. The stream tasks (one per open
  * request, stacks in PSRAM) always send the newest JPEG, so a slow viewer skips frames instead of
  * queueing them. A JPEG buffer is never overwritten while a task sends it: every task holds at most
@@ -28,6 +29,7 @@
 #include "board_camera.h"
 #include "camera.h"
 #include "driver/jpeg_encode.h"
+#include "driver/ppa.h"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
 #include "esp_http_server.h"
@@ -70,6 +72,12 @@ static const char *TAG = "camera";
 #define WIFI_POLL_MS    1000
 #define EV_FRAME        BIT0
 
+#if CONFIG_CAMERA_HMIRROR
+#define MIRROR true
+#else
+#define MIRROR false
+#endif
+
 #define PART_BOUNDARY "ehmiframe"
 static const char STREAM_TYPE[] = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
 static const char STREAM_BOUNDARY[] = "\r\n--" PART_BOUNDARY "\r\n";
@@ -77,8 +85,19 @@ static const char STREAM_BOUNDARY[] = "\r\n--" PART_BOUNDARY "\r\n";
 typedef struct {
     uint8_t version;
     uint8_t on;
-    uint8_t reserved[2];
+    uint8_t res; /* camera_res_t; was reserved (0 = 1920x1080) before 2026-10-13 */
+    uint8_t reserved;
 } cfg_t;
+
+static const struct {
+    uint16_t w, h;
+} s_res_size[CAMERA_RES_COUNT] = {
+    [CAMERA_RES_1920X1080] = {1920, 1080},
+    [CAMERA_RES_1280X720] = {1280, 720},
+    [CAMERA_RES_1024X576] = {1024, 576},
+    [CAMERA_RES_720X480] = {720, 480},
+    [CAMERA_RES_640X360] = {640, 360},
+};
 
 typedef struct {
     uint8_t *buf;
@@ -95,8 +114,9 @@ typedef struct {
 
 /* Shared, under s_lock */
 static SemaphoreHandle_t s_lock;
-static bool s_on;    /* setting */
-static bool s_retry; /* camera_set_on() since the last fault */
+static bool s_on;          /* setting */
+static camera_res_t s_res; /* setting */
+static bool s_retry;       /* camera_set_on() or camera_set_res() since the last fault */
 static camera_status_t s_st;
 static jpeg_slot_t s_jpeg[JPEG_BUFS];
 static int s_newest = -1; /* slot of the newest frame */
@@ -117,6 +137,17 @@ static uint8_t *s_cap[CAP_BUFS];
 static jpeg_encoder_handle_t s_enc;
 static httpd_handle_t s_httpd;
 static bool s_open;      /* device open, buffers allocated */
+static camera_res_t s_open_res; /* size it was opened for */
+static uint32_t s_sensor_w, s_sensor_h;
+static struct {
+    bool on;         /* PPA pass needed: smaller size or mirror */
+    uint32_t k;      /* scale k/16 */
+    uint32_t bw, bh; /* block of the sensor picture that scales to the picture size */
+    uint32_t ox, oy; /* its offset (centred) */
+} s_scale;
+static ppa_client_handle_t s_ppa;
+static uint8_t *s_scaled; /* PPA output, JPEG input */
+static size_t s_scaled_size;
 static bool s_streaming; /* sensor running */
 static int s_warmup;
 static int s_dq_fails;
@@ -391,18 +422,24 @@ static esp_err_t server_start(void)
     return ESP_OK;
 }
 
+/** Make the stream tasks end their requests. @return true once none is busy */
+static bool streams_stop(void)
+{
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_serving = false;
+    const bool idle = s_busy == 0;
+    xSemaphoreGive(s_lock);
+    return idle; /* each stream task ends within FRAME_WAIT_MS plus a send timeout */
+}
+
 /** @return true once stopped; false while a stream task still finishes (try again later) */
 static bool server_stop(void)
 {
     if (s_httpd == NULL) {
         return true;
     }
-    xSemaphoreTake(s_lock, portMAX_DELAY);
-    s_serving = false;
-    const uint8_t busy = s_busy;
-    xSemaphoreGive(s_lock);
-    if (busy) {
-        return false; /* each stream task ends within FRAME_WAIT_MS plus a send timeout */
+    if (!streams_stop()) {
+        return false;
     }
     (void)httpd_stop(s_httpd);
     s_httpd = NULL;
@@ -423,6 +460,12 @@ static void device_close(void)
         s_fd = -1;
     }
     memset(s_cap, 0, sizeof(s_cap));
+    heap_caps_free(s_scaled);
+    s_scaled = NULL;
+    if (s_ppa) {
+        (void)ppa_unregister_client(s_ppa);
+        s_ppa = NULL;
+    }
     if (s_enc) {
         (void)jpeg_del_encoder_engine(s_enc);
         s_enc = NULL;
@@ -435,6 +478,50 @@ static void device_close(void)
     s_newest = -1;
     xSemaphoreGive(s_lock);
     s_open = false;
+}
+
+/** Even input length that the PPA scales by k/16 to exactly `out` (it truncates), at most `max`; 0 if none. */
+static uint32_t ppa_in_len(uint32_t out, uint32_t k, uint32_t max)
+{
+    const uint32_t first = (16 * out + k - 1) / k;
+    for (uint32_t b = first; b <= first + 2 && b <= max; b++) {
+        if (b % 2 == 0 && b * k / 16 == out) {
+            return b;
+        }
+    }
+    return 0;
+}
+
+/**
+ * Scaling from the sensor size to `res`: the smallest k/16 (the PPA's step) that still covers the
+ * picture, applied to a centred block of the sensor picture. The sizes are multiples of 16 x 8, the
+ * block the JPEG encoder takes in YUV422 (DMA2D_MACRO_BLOCK_SIZE_8_16 in IDF's jpeg_encode.c).
+ * @return "" or why it is not possible
+ */
+static const char *scale_plan(camera_res_t res, uint32_t sw, uint32_t sh, uint32_t *ow, uint32_t *oh)
+{
+    *ow = s_res_size[res].w;
+    *oh = s_res_size[res].h;
+    if (*ow > sw || *oh > sh) {
+        return "Picture size larger than the sensor's";
+    }
+    uint32_t k = 16;
+    for (uint32_t i = 1; i <= 16; i++) {
+        if (sw * i >= 16 * *ow && sh * i >= 16 * *oh) {
+            k = i;
+            break;
+        }
+    }
+    s_scale.k = k;
+    s_scale.bw = ppa_in_len(*ow, k, sw);
+    s_scale.bh = ppa_in_len(*oh, k, sh);
+    if (s_scale.bw == 0 || s_scale.bh == 0) {
+        return "Picture size not possible";
+    }
+    s_scale.ox = ((sw - s_scale.bw) / 2) & ~1u;
+    s_scale.oy = ((sh - s_scale.bh) / 2) & ~1u;
+    s_scale.on = k < 16 || MIRROR;
+    return "";
 }
 
 /** Sensor, device in RGB565, buffers. @return "" or why it failed */
@@ -454,23 +541,16 @@ static const char *device_open(void)
     if (ioctl(s_fd, VIDIOC_G_FMT, &f) != 0) {
         return "Camera format not readable";
     }
-    const uint32_t w = f.fmt.pix.width, h = f.fmt.pix.height;
+    const uint32_t sw = f.fmt.pix.width, sh = f.fmt.pix.height;
     f = (struct v4l2_format){.type = V4L2_BUF_TYPE_VIDEO_CAPTURE};
-    f.fmt.pix.width = w;
-    f.fmt.pix.height = h;
+    f.fmt.pix.width = sw;
+    f.fmt.pix.height = sh;
     f.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB565; /* what the hardware JPEG encoder takes */
     if (ioctl(s_fd, VIDIOC_S_FMT, &f) != 0) {
         return "Camera refused RGB565";
     }
     struct timeval to = {.tv_sec = DQBUF_TIMEOUT_S};
     (void)ioctl(s_fd, VIDIOC_S_DQBUF_TIMEOUT, &to);
-#if CONFIG_CAMERA_HMIRROR
-    struct v4l2_ext_control mirror = {.id = V4L2_CID_HFLIP, .value = 1};
-    struct v4l2_ext_controls ctrls = {.ctrl_class = V4L2_CTRL_CLASS_USER, .count = 1, .controls = &mirror};
-    if (ioctl(s_fd, VIDIOC_S_EXT_CTRLS, &ctrls) != 0) {
-        ESP_LOGW(TAG, "mirror not set");
-    }
-#endif
     struct v4l2_requestbuffers rb = {.count = CAP_BUFS, .type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
                                      .memory = V4L2_MEMORY_MMAP};
     if (ioctl(s_fd, VIDIOC_REQBUFS, &rb) != 0) {
@@ -484,6 +564,27 @@ static const char *device_open(void)
         s_cap[i] = mmap(NULL, b.length, PROT_READ | PROT_WRITE, MAP_SHARED, s_fd, b.m.offset);
         if (s_cap[i] == NULL || s_cap[i] == MAP_FAILED) {
             return "Camera buffer not mapped";
+        }
+    }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    const camera_res_t res = s_res;
+    xSemaphoreGive(s_lock);
+    uint32_t w, h;
+    const char *why = scale_plan(res, sw, sh, &w, &h);
+    if (why[0]) {
+        return why;
+    }
+    if (s_scale.on) {
+        const ppa_client_config_t pc = {.oper_type = PPA_OPERATION_SRM};
+        if (ppa_register_client(&pc, &s_ppa) != ESP_OK) {
+            return "PPA did not start";
+        }
+        /* The PPA writes it: address and size aligned to the cache line, which IDF's JPEG allocator
+         * only does for its OUTPUT direction (jpeg_encode.c, jpeg_alloc_encoder_mem). */
+        const jpeg_encode_memory_alloc_cfg_t ic = {.buffer_direction = JPEG_ENC_ALLOC_OUTPUT_BUFFER};
+        s_scaled = jpeg_alloc_encoder_mem(w * h * 2, &ic, &s_scaled_size);
+        if (s_scaled == NULL) {
+            return "No memory for the scaled picture";
         }
     }
     const jpeg_encode_engine_cfg_t ec = {.timeout_ms = JPEG_TIMEOUT_MS};
@@ -507,8 +608,19 @@ static const char *device_open(void)
     s_st.width = (uint16_t)w;
     s_st.height = (uint16_t)h;
     xSemaphoreGive(s_lock);
-    ESP_LOGI(TAG, "%s %" PRIu32 "x%" PRIu32 " RGB565, %d JPEG buffers of %u KB", BOARD_CAMERA_SENSOR_NAME, w, h,
-             JPEG_BUFS, (unsigned)(w * h / 2 / 1024));
+    if (s_scale.on) {
+        ESP_LOGI(TAG,
+                 "%s %" PRIu32 "x%" PRIu32 " -> %" PRIu32 "x%" PRIu32 " (PPA %" PRIu32 "/16 of %" PRIu32 "x%" PRIu32
+                 "%s), %d JPEG buffers of %u KB",
+                 BOARD_CAMERA_SENSOR_NAME, sw, sh, w, h, s_scale.k, s_scale.bw, s_scale.bh, MIRROR ? ", mirrored" : "",
+                 JPEG_BUFS, (unsigned)(w * h / 2 / 1024));
+    } else {
+        ESP_LOGI(TAG, "%s %" PRIu32 "x%" PRIu32 ", %d JPEG buffers of %u KB", BOARD_CAMERA_SENSOR_NAME, w, h,
+                 JPEG_BUFS, (unsigned)(w * h / 2 / 1024));
+    }
+    s_sensor_w = sw;
+    s_sensor_h = sh;
+    s_open_res = res;
     s_open = true;
     return "";
 }
@@ -573,6 +685,29 @@ static void encode(const uint8_t *src, uint32_t len)
     (void)xEventGroupClearBits(s_ev, EV_FRAME);
 }
 
+/** Sensor picture to the chosen size (and mirrored if asked) into s_scaled. */
+static bool scale(const uint8_t *src)
+{
+    const ppa_srm_oper_config_t op = {
+        .in = {.buffer = src, .pic_w = s_sensor_w, .pic_h = s_sensor_h, .block_w = s_scale.bw,
+               .block_h = s_scale.bh, .block_offset_x = s_scale.ox, .block_offset_y = s_scale.oy,
+               .srm_cm = PPA_SRM_COLOR_MODE_RGB565},
+        .out = {.buffer = s_scaled, .buffer_size = s_scaled_size, .pic_w = s_st.width, .pic_h = s_st.height,
+                .srm_cm = PPA_SRM_COLOR_MODE_RGB565},
+        .rotation_angle = PPA_SRM_ROTATION_ANGLE_0,
+        .scale_x = (float)s_scale.k / 16.0f,
+        .scale_y = (float)s_scale.k / 16.0f,
+        .mirror_x = MIRROR,
+        .mode = PPA_TRANS_MODE_BLOCKING,
+    };
+    const esp_err_t err = ppa_do_scale_rotate_mirror(s_ppa, &op);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "PPA: %s", esp_err_to_name(err));
+        return false;
+    }
+    return true;
+}
+
 /** One frame from the sensor; compressed when the frame-rate limit allows. */
 static void capture(void)
 {
@@ -593,7 +728,11 @@ static void capture(void)
         const int64_t period = 1000000 / CONFIG_CAMERA_MAX_FPS;
         s_next_frame_us = (s_next_frame_us && now - s_next_frame_us < period) ? s_next_frame_us + period
                                                                                : now + period;
-        encode(s_cap[b.index], b.bytesused);
+        if (!s_scale.on) {
+            encode(s_cap[b.index], b.bytesused);
+        } else if (scale(s_cap[b.index])) {
+            encode(s_scaled, (uint32_t)s_st.width * s_st.height * 2);
+        }
     }
     (void)ioctl(s_fd, VIDIOC_QBUF, &b);
 }
@@ -616,6 +755,7 @@ static void apply(void)
 {
     xSemaphoreTake(s_lock, portMAX_DELAY);
     const bool on = s_on;
+    const camera_res_t res = s_res;
     const bool retry = s_retry;
     s_retry = false;
     const bool demand = s_viewers > 0 || (int32_t)(s_want_until - xTaskGetTickCount()) > 0;
@@ -633,6 +773,12 @@ static void apply(void)
     }
     if (state_get() == CAMERA_FAULT && !retry) {
         return; /* switch off and on (or on again) to retry */
+    }
+    if (s_open && res != s_open_res) { /* new size: the buffers change, so the streams end first */
+        if (!streams_stop()) {
+            return;
+        }
+        device_close();
     }
     if (!s_open) {
         set_state(CAMERA_STARTING, "");
@@ -654,6 +800,10 @@ static void apply(void)
             set_state(CAMERA_FAULT, "HTTP server did not start");
             return;
         }
+    } else if (!serving()) {
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        s_serving = true; /* after a size change */
+        xSemaphoreGive(s_lock);
     }
     if (demand) {
         s_demand_at = xTaskGetTickCount();
@@ -716,10 +866,11 @@ esp_err_t camera_start(void)
         c = (cfg_t){.version = BLOB_VERSION, .on = false};
     }
     s_on = c.on;
+    s_res = c.res < CAMERA_RES_COUNT ? (camera_res_t)c.res : CAMERA_RES_1920X1080;
     s_st = (camera_status_t){
         .state = CAMERA_OFF, .port = CONFIG_CAMERA_HTTP_PORT, .max_fps = CONFIG_CAMERA_MAX_FPS};
-    ESP_LOGI(TAG, "camera %s (port %d, at most %d frames/s)", s_on ? "on" : "off", CONFIG_CAMERA_HTTP_PORT,
-             CONFIG_CAMERA_MAX_FPS);
+    ESP_LOGI(TAG, "camera %s, %ux%u (port %d, at most %d frames/s)", s_on ? "on" : "off", s_res_size[s_res].w,
+             s_res_size[s_res].h, CONFIG_CAMERA_HTTP_PORT, CONFIG_CAMERA_MAX_FPS);
 
     /* Stacks in PSRAM: these tasks only wait, encode through DMA and send on sockets. */
     ESP_RETURN_ON_FALSE(xTaskCreatePinnedToCoreWithCaps(camera_task, "camera", TASK_STACK, NULL, TASK_PRIO, NULL, 0,
@@ -747,8 +898,20 @@ void camera_status(camera_status_t *out)
     xSemaphoreTake(s_lock, portMAX_DELAY);
     *out = s_st;
     out->on = s_on;
+    out->res = s_res;
     out->viewers = s_viewers;
     xSemaphoreGive(s_lock);
+}
+
+static void cfg_save(void)
+{
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    const cfg_t c = {.version = BLOB_VERSION, .on = s_on, .res = (uint8_t)s_res};
+    xSemaphoreGive(s_lock);
+    const esp_err_t err = machine_store_save(STORE_KEY, &c, sizeof(c));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "saving the camera settings failed: %s", esp_err_to_name(err));
+    }
 }
 
 esp_err_t camera_set_on(bool on)
@@ -758,13 +921,34 @@ esp_err_t camera_set_on(bool on)
     s_on = on;
     s_retry = true;
     xSemaphoreGive(s_lock);
-    const cfg_t c = {.version = BLOB_VERSION, .on = on};
-    const esp_err_t err = machine_store_save(STORE_KEY, &c, sizeof(c));
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "saving the camera setting failed: %s", esp_err_to_name(err));
+    cfg_save();
+    wake();
+    return ESP_OK;
+}
+
+esp_err_t camera_set_res(camera_res_t res)
+{
+    ESP_RETURN_ON_FALSE(s_lock, ESP_ERR_INVALID_STATE, TAG, "not started");
+    ESP_RETURN_ON_FALSE(res < CAMERA_RES_COUNT, ESP_ERR_INVALID_ARG, TAG, "size");
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    const bool changed = s_res != res;
+    s_res = res;
+    s_retry = true;
+    xSemaphoreGive(s_lock);
+    if (changed) {
+        cfg_save();
     }
     wake();
     return ESP_OK;
+}
+
+void camera_res_size(camera_res_t res, uint16_t *w, uint16_t *h)
+{
+    if (res >= CAMERA_RES_COUNT) {
+        res = CAMERA_RES_1920X1080;
+    }
+    *w = s_res_size[res].w;
+    *h = s_res_size[res].h;
 }
 
 const char *camera_state_text(camera_state_t s)

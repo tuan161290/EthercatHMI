@@ -28,9 +28,9 @@ menu "Camera stream (components/camera)"
         bool "Mirror the picture left to right"
         default n
         help
-            The module's picture is mirrored: text reads backwards (board, 2026-10-13). This sets
-            the sensor's mirror bit (OV02C10 register 0x3821). Untested: the driver does not change
-            the Bayer order with it, so check the colours after switching it on.
+            The module's picture is mirrored: text reads backwards (board, 2026-10-13). The PPA
+            mirrors it while scaling (not the sensor's mirror bit, which would shift the Bayer order
+            the ISP expects). At 1920x1080 this adds a PPA pass over the full picture. Untested.
 
     config CAMERA_MAX_VIEWERS
         int "Stream connections at most"

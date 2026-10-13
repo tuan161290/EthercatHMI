@@ -119,7 +119,12 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
       - free internal RAM at "HMI up" went from 172 KB to 154 KB;
       - EtherCAT in OP during scan and join: 0 overruns, wake late at most 2 µs; RTT average about 3 µs higher, worst 179 µs.
   - `components/camera/`: the OV02C10 camera as an MJPEG stream over Wi-Fi (2026-10-13; `docs/CAMERA.md`).
-    - Settings › Camera switches it (machine store key `camera`). While on, an HTTP server on the Wi-Fi address serves `/stream`, `/snapshot.jpg` and `/`. No password: LAN only.
+    - Settings › Camera switches it and picks the picture size (machine store key `camera`). While on, an HTTP server on the Wi-Fi address serves `/stream`, `/snapshot.jpg` and `/`. No password: LAN only.
+    - Picture sizes (2026-10-13): 1920x1080, 1280x720, 1024x576, 720x480, 640x360.
+      - The sensor always runs at 1920x1080. The PPA scales a centred block in steps of 1/16, so smaller sizes lose 3–11 % at the edges, and 720x480 (3:2) loses 25 % of the width.
+      - Sizes must be multiples of 16 x 8 for the JPEG encoder, so there is no 960x540.
+      - All five run on the board. At 1024x576: 4.8 frames/s, 31 KB a frame, 1.25 Mbit/s, 61 KB internal RAM free.
+      - The PPA output buffer needs a cache-line aligned address and size. IDF's `jpeg_alloc_encoder_mem` aligns only its OUTPUT direction.
     - The sensor only runs while someone watches or asks for a snapshot. Off frees about 12 MB PSRAM.
     - All its tasks are on core 0: `camera` and `cam_http0..2` (stacks in PSRAM), `httpd`. `camera` needs 8 KB: 4 KB overflowed on the board.
     - `components/board/board_camera.c`: `esp_video` 2.1.0 on the shared I2C bus (SCCB 100 kHz), no reset or power-down pin, LDO_VO3 shared with DSI.
@@ -129,11 +134,11 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
       - 4.8 of 5 frames/s, about 64 KB a frame, 2–3 Mbit/s; core 0 at 4–10 %;
       - free internal RAM 85 KB when ready, 54–58 KB while streaming.
     - Open:
-      - The picture is mirrored left to right (`CONFIG_CAMERA_HMIRROR`, untested).
+      - The picture is mirrored left to right (confirmed by text on the image). `CONFIG_CAMERA_HMIRROR` mirrors it in the PPA (untested).
       - The effect on EtherCAT in OP is not measured yet.
     - Server side: `server/camera/` (go2rtc plus an ffmpeg recorder for TrueNAS; not run yet). It pulls from the HMI's address, so the NAS needs a LAN or VPN route to the HMI.
   - `main/main.c`: EtherCAT bring-up app (scan → compare → OP or hold in PRE-OP; cyclic PDO, stats), starts the HMI and publishes the bus status to it.
-  - `main/app_console.c`: console commands on USB-Serial-JTAG (`topo`, `scan`, `accept`, `recheck`, `forget yes`, `stop`, `selftest` (topology + axis logic), `panel [new|old]`, `display [bright N | rgb R G B | reset | dim S | off S | wake]`, `axis [n on|off|reset|stop|qstop|home|move|rel|jog]`; `docs/SETUP.md` 7c, `path [stop | line X Y dx dy | cw|ccw X Y i j [deg]] [rev/s] [ms]` (two-axis CSP path in motor revolutions; 7e), `page <name>` (open an HMI page without touch), `cpu [n]` (CPU load and LVGL frames/s), `screenshot` (with `tools/screenshot.py`), `touchlog`, `sdo <pos> <index hex> [sub]` and `sdo <pos> rack` (CoE reads through the SDO worker, with the abort code), `store [test]` (machine store keys and space; `test` times ten 1 KB saves), `clock [YYYY-MM-DD HH:MM[:SS]]`, `mem`, `wifi [on|off|scan|join <ssid> [pw]|forget|tasks]`, `cam [on|off]` (camera state, address, frames/s; `docs/CAMERA.md`), `ntp [on|off|server <name>|sync]`, `alarms [ack]`).
+  - `main/app_console.c`: console commands on USB-Serial-JTAG (`topo`, `scan`, `accept`, `recheck`, `forget yes`, `stop`, `selftest` (topology + axis logic), `panel [new|old]`, `display [bright N | rgb R G B | reset | dim S | off S | wake]`, `axis [n on|off|reset|stop|qstop|home|move|rel|jog]`; `docs/SETUP.md` 7c, `path [stop | line X Y dx dy | cw|ccw X Y i j [deg]] [rev/s] [ms]` (two-axis CSP path in motor revolutions; 7e), `page <name>` (open an HMI page without touch), `cpu [n]` (CPU load and LVGL frames/s), `screenshot` (with `tools/screenshot.py`), `touchlog`, `sdo <pos> <index hex> [sub]` and `sdo <pos> rack` (CoE reads through the SDO worker, with the abort code), `store [test]` (machine store keys and space; `test` times ten 1 KB saves), `clock [YYYY-MM-DD HH:MM[:SS]]`, `mem`, `wifi [on|off|scan|join <ssid> [pw]|forget|tasks]`, `cam [on|off|size WxH]` (camera state, address, frames/s, picture size; `docs/CAMERA.md`), `ntp [on|off|server <name>|sync]`, `alarms [ack]`).
     - The LCD panel variant is stored in NVS and takes effect after a reset.
 - `docs/BOARD.md` has the reconciled pin map and subsystems. `docs/ETHERCAT_PLAN.md` has the architecture and phases. `docs/SETUP.md` covers toolchain, build, flashing and smoke tests. Read them before touching hardware code.
 - `docs/SLAVES_LEADSHINE.md` covers the slaves. Read it before writing any slave configuration code.
