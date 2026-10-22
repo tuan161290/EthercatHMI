@@ -1,4 +1,0 @@
-# esp_video for the V4L2 headers and devices; the same version as components/board.
-dependencies:
-  idf: ">=5.5,<6.0"
-  espressif/esp_video: "2.1.0"

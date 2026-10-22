@@ -284,13 +284,6 @@ static void draw_icon(const pen_t *p, hmi_icon_t icon)
         line(p, 12, 5, 12, 19);
         line(p, 5, 12, 19, 12);
         break;
-    case HMI_ICON_CAMERA: { /* body with a raised top, round lens */
-        static const float top[] = {8, 7, 9.5f, 4.5f, 14.5f, 4.5f, 16, 7};
-        rect(p, 3, 7, 18, 13, 2, false, p->c);
-        poly(p, top, 4);
-        arc(p, 12, 13.5f, 3.5f, 0, 360);
-        break;
-    }
     case HMI_ICON_WARNING: {
         pen_t fill = *p;
         fill.c = HMI_C(HMI_CAUTION);

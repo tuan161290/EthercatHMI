@@ -419,7 +419,6 @@ static const struct {
     {"system", HMI_PAGE_SETTINGS, HMI_SET_SYSTEM},
     {"network", HMI_PAGE_SETTINGS, HMI_SET_NETWORK},
     {"info", HMI_PAGE_SETTINGS, HMI_SET_INFO},
-    {"camera", HMI_PAGE_SETTINGS, HMI_SET_CAMERA},
 };
 
 bool hmi_open_page(const char *name)

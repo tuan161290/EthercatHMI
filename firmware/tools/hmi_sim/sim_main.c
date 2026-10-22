@@ -142,7 +142,7 @@ int main(int argc, char **argv)
 {
     static const char *const all[] = {"main",     "jog",    "teach",  "interp", "io",      "alarms",
                                       "settings", "time",   "servo",  "ethercat", "system", "network",
-                                      "info",     "camera",   "keyboard", "interp_run", "dropdown"};
+                                      "info",     "keyboard", "interp_run", "dropdown"};
     if (argc < 2) {
         fprintf(stderr, "use: hmi_sim <out dir> [page ...]\n");
         return 2;

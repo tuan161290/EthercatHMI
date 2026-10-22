@@ -2,8 +2,8 @@
  * Settings: one tile per settings page with the user level it needs (tiles instead of the
  * mockup's rows, user 2026-10-11: easier to hit on the touch screen). Built: Time
  * (hmi_page_time.c), Servo (hmi_page_servo.c), EtherCAT (hmi_page_ethercat.c), Network
- * (hmi_page_network.c), System (display settings and screen timeouts, here), System info
- * (hmi_page_info.c) and Camera (hmi_page_camera.c). Recipe, User & password, Maintenance and Backup / restore have no mockup yet
+ * (hmi_page_network.c), System (display settings and screen timeouts, here) and System info
+ * (hmi_page_info.c). Recipe, User & password, Maintenance and Backup / restore have no mockup yet
  * and open a placeholder. Sub-pages keep Settings selected on the rail and show the
  * breadcrumb "Settings › Page" (docs/HMI_THEME.md section 1).
  */
@@ -37,7 +37,6 @@ typedef enum {
     SUB_SYSTEM = HMI_SET_SYSTEM,
     SUB_INFO = HMI_SET_INFO,
     SUB_BACKUP = HMI_SET_BACKUP,
-    SUB_CAMERA = HMI_SET_CAMERA,
     SUB_COUNT = HMI_SET_COUNT,
 } sub_t;
 
@@ -58,7 +57,6 @@ static const struct {
     [SUB_SYSTEM] = {"Display", "Display", "Brightness, colours, screen off", "Admin", HMI_ICON_MONITOR},
     [SUB_INFO] = {"System info", "System info", "Memory, firmware, uptime", "Admin", HMI_ICON_INFO},
     [SUB_BACKUP] = {"Backup", "Backup / restore", "Export and import (SD card)", "Admin", HMI_ICON_DOWNLOAD},
-    [SUB_CAMERA] = {"Camera", "Camera", "Live picture to the server", "Admin", HMI_ICON_CAMERA},
 };
 
 typedef enum {
@@ -152,7 +150,7 @@ static lv_obj_t *crumb_create(lv_obj_t *root, sub_t sub)
 static bool built(sub_t sub)
 {
     return sub == SUB_TIME || sub == SUB_SERVO || sub == SUB_SYSTEM || sub == SUB_ETHERCAT || sub == SUB_NETWORK ||
-           sub == SUB_INFO || sub == SUB_CAMERA;
+           sub == SUB_INFO;
 }
 
 static void tile_create(lv_obj_t *grid, sub_t sub)
@@ -555,8 +553,6 @@ static void show(sub_t sub)
         hmi_network_create(s_root, crumb_create(s_root, sub));
     } else if (sub == SUB_INFO) {
         hmi_info_create(s_root, crumb_create(s_root, sub));
-    } else if (sub == SUB_CAMERA) {
-        hmi_camera_create(s_root, crumb_create(s_root, sub));
     } else {
         crumb_create(s_root, sub);
         hmi_todo_card(s_root);

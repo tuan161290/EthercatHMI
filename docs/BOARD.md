@@ -44,7 +44,7 @@ Mọi đường dẫn đều tương đối so với thư mục gốc dự án `
 | I2C | CN3 SH1.0 4P | SPEC p5 mục 12 |
 | Âm thanh | Codec ES8311, ampli NS4150, mic MEMS analog. Loa ngoài cắm CN1 (MX1.25 2P). | SCH; SPEC p5 mục 3 |
 | Thẻ nhớ | Khe TF, SDMMC 4-bit. Thẻ < 32 GB, FAT32. | SPEC p5; `vendor/JC1060/1-Demo/Instructions.txt` |
-| Camera | FPC2 15P, MIPI-CSI 2 lane. Module OV02C10 **có lắp**: chip ID 0x5602 đọc được ở I2C 0x36 (2026-10-13). SPEC không liệt kê camera. | SCH CSI_Camera; `docs/CAMERA.md` |
+| Camera | FPC2 15P, MIPI-CSI 2 lane. Module OV02C10 **có lắp**: chip ID 0x5602 đọc được ở I2C 0x36 (2026-10-13). SPEC không liệt kê camera. | SCH CSI_Camera; `docs/CAMERA.md` (nhánh git `camera`) |
 | USB | USB2 "Full Speed" Type-C dùng để nạp (USB-Serial-JTAG). USB3 "High Speed" Type-C là HS OTG. | SCH; SPEC p5 mục 7, 9 |
 | RTC | RX8025T-UC, pin CR1220. Chân INT# không nối vào GPIO nào. Trả lời ở địa chỉ I2C **0x32** trên I2C_NUM_1 (đã kiểm tra 2026-10-10, `board_rtc.c`). Lần khởi động đầu cờ VLF đang bật (RTC đã mất giờ). Sau khi đặt giờ, giờ còn đúng qua một lần reset; **chưa thử tắt nguồn**, nên chưa biết pin CR1220 có lắp hay còn tốt không. | SCH RTC; bản đồ thanh ghi theo tài liệu Epson RX-8025T (datasheet không có trong gói của hãng) |
 | Pin Li-ion | IP5306, cổng CN4, nút SW3 | SCH Battery |
@@ -323,7 +323,7 @@ Các chân RMII **không** đưa ra JP1. Thông tin ngược lại trước đâ
 
 **Đã chạy trên board (2026-10-13):**
 - Driver đọc được chip ID 0x5602 ở địa chỉ 0x36 trên I2C bus 1.
-- Stream 1920x1080 qua Wi-Fi: Settings › Camera, chi tiết ở `docs/CAMERA.md`.
+- Firmware hỗ trợ camera (stream qua Wi-Fi, đẩy lên server) đã gỡ khỏi `main` ngày 2026-10-22 vì máy ít dùng; nằm ở nhánh git `camera` (`docs/CAMERA.md` trong nhánh đó).
 - Ảnh gốc của module bị lật trái/phải.
 
 ### 3.9 USB, nạp firmware và console
@@ -507,4 +507,4 @@ Thư mục `vendor/JC1060/1-Demo/Demo_IDF/components/` chứa bản sao esp-broo
 7. Mức điện áp RO của MAX485 vào GPIO27 là bao nhiêu?
 8. GT911 lên địa chỉ nào khi không điều khiển INT/RST?
 9. Bộ timing nào của Old panel đã được kiểm chứng?
-10. ~~Cổng camera FPC2 có được lắp không?~~ Có: module OV02C10 trả lời (2026-10-13, `docs/CAMERA.md`).
+10. ~~Cổng camera FPC2 có được lắp không?~~ Có: module OV02C10 trả lời (2026-10-13; `docs/CAMERA.md` ở nhánh `camera`).

@@ -230,7 +230,6 @@ typedef enum {
     HMI_ICON_WARNING,       /* filled caution triangle with a white "!"; colour ignored */
     HMI_ICON_WIFI,          /* Network */
     HMI_ICON_CHECK,         /* Acknowledge */
-    HMI_ICON_CAMERA,        /* Camera setting */
 } hmi_icon_t;
 
 lv_obj_t *hmi_icon(lv_obj_t *parent, hmi_icon_t icon, int32_t size, uint32_t color);
@@ -295,7 +294,6 @@ typedef enum {
     HMI_SET_SYSTEM,
     HMI_SET_INFO,
     HMI_SET_BACKUP,
-    HMI_SET_CAMERA,
     HMI_SET_COUNT,
 } hmi_settings_sub_t;
 
@@ -318,9 +316,6 @@ void hmi_network_create(lv_obj_t *root, lv_obj_t *head);
 
 /** Settings > System info: memory, firmware, chip, uptime (hmi_page_info.c). */
 void hmi_info_create(lv_obj_t *root, lv_obj_t *head);
-
-/** Settings > Camera: stream switch, addresses and rates (hmi_page_camera.c). */
-void hmi_camera_create(lv_obj_t *root, lv_obj_t *head);
 
 /** Topology request to the EtherCAT task (hmi_config_t.bus_request). @return false if refused */
 bool hmi_bus_request(hmi_bus_req_t req);

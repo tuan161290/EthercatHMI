@@ -2,7 +2,6 @@
  * Serial console commands (esp_console REPL on the primary console, core 0).
  */
 
-#include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,7 +9,6 @@
 #include <strings.h>
 #include "esp_attr.h"
 #include "app_console.h"
-#include "camera.h"
 #include "ecat_axis.h"
 #include "ecat_busview.h"
 #include "ecat_sdo_service.h"
@@ -51,9 +49,7 @@ static int cmd_mem(int argc, char **argv)
     static const char *const tasks[] = {"ecat",      "emac_rx",    "ecat_chk",  "ecat_mon",  "ecat_sdo",
                                         "alarms",    "taskLVGL",   "net",       "tiT",       "sys_evt",
                                         "esp_timer", "console_repl", "sdio_read", "sdio_write", "sdio_process_rx",
-                                        "sdio_rx_buf", "rpc_rx",   "rpc_tx",    "ipc0",      "ipc1",
-                                        "camera",    "cam_http0",  "cam_http1", "cam_http2", "httpd",
-                                        "isp_task",  "cam_push"};
+                                        "sdio_rx_buf", "rpc_rx",   "rpc_tx",    "ipc0",      "ipc1"};
     printf("KB         %9s %9s %9s %9s\n", "free", "lowest", "largest", "total");
     mem_line("Internal", MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     mem_line("PSRAM", MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -839,13 +835,11 @@ static int wifi_scan_print(void)
     return 0;
 }
 
-/* Core and priority of the network and camera tasks: esp_hosted's and esp_video's must be on core 0
- * (components/net, board_camera.c). */
+/* Core and priority of the network tasks: esp_hosted's must be on core 0 (components/net). */
 static void wifi_tasks_print(void)
 {
     static const char *const names[] = {"sdio_read", "sdio_write", "sdio_process_rx", "sdio_rx_buf", "rpc_rx",
-                                        "rpc_tx", "rpc_supp_cb", "tiT", "sys_evt", "net", "isp_task", "camera",
-                                        "cam_http0", "httpd", "ecat", "emac_rx"};
+                                        "rpc_tx", "rpc_supp_cb", "tiT", "sys_evt", "net", "ecat", "emac_rx"};
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         TaskHandle_t h = xTaskGetHandle(names[i]);
         if (h == NULL) {
@@ -912,103 +906,6 @@ static int cmd_ntp(int argc, char **argv)
         return 1;
     }
     printf("OK; type 'ntp' to follow the state.\n");
-    return 0;
-}
-
-/* ---- Camera (components/camera) ---- */
-
-static void cam_push_print(void)
-{
-    camera_push_cfg_t p;
-    camera_push_get(&p);
-    camera_status_t c;
-    camera_status(&c);
-    printf("Push %s: %s", p.on ? "on" : "off", camera_push_state_text(c.push));
-    if (c.push == CAMERA_PUSH_SENDING) {
-        printf(" | %" PRIu32 " kbit/s", c.push_kbit_s);
-    }
-    if (c.push_reason[0]) {
-        printf(" | %s", c.push_reason);
-    }
-    printf("\nServer \"%s\" | user \"%s\" | password %s\n", p.url, p.user, p.has_password ? "set" : "none");
-}
-
-static int cmd_cam_push(int argc, char **argv)
-{
-    esp_err_t err = ESP_OK;
-    if (argc == 2) {
-        cam_push_print();
-        return 0;
-    } else if (argc == 3 && (strcmp(argv[2], "on") == 0 || strcmp(argv[2], "off") == 0)) {
-        err = camera_push_set_on(strcmp(argv[2], "on") == 0);
-    } else if (argc == 4 && strcmp(argv[2], "url") == 0) {
-        err = camera_push_set(argv[3], NULL, NULL);
-    } else if ((argc == 4 || argc == 5) && strcmp(argv[2], "login") == 0) {
-        err = camera_push_set(NULL, argv[3], argc == 5 ? argv[4] : "");
-    } else {
-        printf("Use: cam push | cam push on|off | cam push url <address> | cam push login <user> [password]\n"
-               "     e.g. cam push url https://home.example.net:8555/api/stream.mjpeg?dst=ehmi\n");
-        return 1;
-    }
-    if (err != ESP_OK) {
-        printf("Failed: %s\n", err == ESP_ERR_INVALID_ARG ? "the address must start with http:// or https:// "
-                                                            "(at most 127 characters; user 31, password 63)"
-                                                          : esp_err_to_name(err));
-        return 1;
-    }
-    printf("OK; type 'cam push' to follow the state.\n");
-    return 0;
-}
-
-static int cmd_cam(int argc, char **argv)
-{
-    if (argc >= 2 && strcmp(argv[1], "push") == 0) {
-        return cmd_cam_push(argc, argv);
-    }
-    if (argc == 2 && (strcmp(argv[1], "on") == 0 || strcmp(argv[1], "off") == 0)) {
-        (void)camera_set_on(strcmp(argv[1], "on") == 0);
-        printf("OK; type 'cam' to follow the state.\n");
-        return 0;
-    } else if (argc == 3 && strcmp(argv[1], "size") == 0) {
-        for (int i = 0; i < CAMERA_RES_COUNT; i++) {
-            uint16_t w, h;
-            camera_res_size((camera_res_t)i, &w, &h);
-            char t[16];
-            snprintf(t, sizeof(t), "%ux%u", w, h);
-            if (strcmp(t, argv[2]) == 0) {
-                (void)camera_set_res((camera_res_t)i);
-                printf("OK; a running stream restarts with the new size.\n");
-                return 0;
-            }
-        }
-        printf("Sizes: 1920x1080 1280x720 1024x576 720x480 640x360\n");
-        return 1;
-    } else if (argc != 1) {
-        printf("Use: cam | cam on | cam off | cam size <WxH> | cam push ...\n");
-        return 1;
-    }
-    camera_status_t c;
-    camera_status(&c);
-    uint16_t rw, rh;
-    camera_res_size(c.res, &rw, &rh);
-    printf("Camera %s, size %ux%u: %s", c.on ? "on" : "off", rw, rh, camera_state_text(c.state));
-    if (c.reason[0]) {
-        printf(" | %s", c.reason);
-    }
-    if (c.sensor[0]) {
-        printf(" | %s %ux%u", c.sensor, c.width, c.height);
-    }
-    printf("\n");
-    net_status_t n;
-    net_status(&n);
-    if (c.state == CAMERA_READY || c.state == CAMERA_STREAMING) {
-        printf("Stream http://%u.%u.%u.%u:%u/stream | snapshot /snapshot.jpg\n", n.ip[0], n.ip[1], n.ip[2], n.ip[3],
-               c.port);
-    }
-    printf("Viewers %u | %u.%u frames/s (at most %u) | %" PRIu32 " kbit/s | last frame %" PRIu32 " KB | %" PRIu32
-           " frames since start-up\n",
-           c.viewers, c.fps_x10 / 10, c.fps_x10 % 10, c.max_fps, c.kbit_s, c.frame_bytes / 1024, c.frames);
-    cam_push_print();
     return 0;
 }
 
@@ -1087,17 +984,13 @@ esp_err_t app_console_start(void)
           .func = cmd_wifi },
         { .command = "ntp", .help = "Internet time: 'ntp', 'ntp on|off', 'ntp server pool.ntp.org', 'ntp sync'",
           .func = cmd_ntp },
-        { .command = "cam", .help = "Camera stream over Wi-Fi: 'cam' shows the state, address and frame rate; "
-                                    "'cam on|off', 'cam size 1280x720', 'cam push [on|off|url <address>|login <user> [password]]' "
-                                    "(saved, as Settings > Camera)",
-          .func = cmd_cam },
         { .command = "alarms", .help = "List the current alarms; 'alarms ack' acknowledges all", .func = cmd_alarms },
     };
 
     esp_console_repl_t *repl = NULL;
     esp_console_repl_config_t cfg = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
     cfg.prompt = "ecat>";
-    cfg.max_cmdline_length = 256; /* 'cam push url' takes up to 127 characters */
+    cfg.max_cmdline_length = 128;
     cfg.task_stack_size = 6144;
     cfg.task_core_id = 0; /* core 1 belongs to EtherCAT */
 

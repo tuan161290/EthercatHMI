@@ -1,4 +1,0 @@
-menu "OV02C10 camera sensor (vendor driver)"
-    # The vendor added this file inside esp_cam_sensor's sensor menu (VENDOR.md).
-    rsource "Kconfig.ov02c10"
-endmenu

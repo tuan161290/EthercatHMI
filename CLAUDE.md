@@ -67,7 +67,7 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
     - `ecat_catalog_gen.c` is generated: run `python tools/esi2catalog.py ../vendor/ESI/Leadshine -o components/ecat/ecat_catalog_gen.c` after adding an ESI file; never edit it by hand.
   - `components/board/`: `board_pins.h` (every GPIO number), `board_eth.c` (EMAC + IP101 bring-up, no lwIP) and `board_display.c` (DSI + JD9165 New/Old init tables, LEDC backlight, GT911 with RST/INT driven), `board_i2c.c` (shared I2C bus 1) and `board_rtc.c` (RX8025T).
   - `components/hmi/`: LVGL 9.5 HMI in the Fluent light theme (`docs/HMI_THEME.md` section 6).
-    - Done (all mockup pages): shell, Main, Manual › Jog and Teaching, IO monitor, Alarms, Settings list, Settings › Time, Servo, EtherCAT and System. Also Settings › Network (Wi-Fi + internet time, no mockup, 2026-10-11), Settings › Camera (no mockup, 2026-10-13) and Manual › Interpolation (`hmi_page_interp.c`, two-axis CSP test with an XY plot, no mockup, 2026-10-12; `docs/SETUP.md` 7e).
+    - Done (all mockup pages): shell, Main, Manual › Jog and Teaching, IO monitor, Alarms, Settings list, Settings › Time, Servo, EtherCAT and System. Also Settings › Network (Wi-Fi + internet time, no mockup, 2026-10-11) and Manual › Interpolation (`hmi_page_interp.c`, two-axis CSP test with an XY plot, no mockup, 2026-10-12; `docs/SETUP.md` 7e).
     - `hmi_dropdown()` (hmi_widgets.c): combo box that drops its list under it (lv_dropdown, 52 px rows). The user asked for drop-down combo boxes to pick the interpolation axes (2026-10-12); the other axis pickers still open the `hmi_choice` roller.
     - `hmi_text_input()` (hmi_widgets.c): text entry with an on-screen keyboard (lv_buttonmatrix, printable ASCII; special keys are words because Open Sans has no arrow/keyboard glyphs; keys type on release so slide-off cancels).
       - Placeholders, because they have no mockup: Settings › Recipe, User & password, Maintenance, Backup / restore, and Manual › Actuators and Homing.
@@ -118,44 +118,12 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
       - after a reset Wi-Fi reconnects by itself (IP about 9.5 s after boot) and NTP syncs again;
       - free internal RAM at "HMI up" went from 172 KB to 154 KB;
       - EtherCAT in OP during scan and join: 0 overruns, wake late at most 2 µs; RTT average about 3 µs higher, worst 179 µs.
-  - `components/camera/`: the OV02C10 camera as an MJPEG stream over Wi-Fi (2026-10-13; `docs/CAMERA.md`).
-    - Settings › Camera switches it and picks the picture size (machine store key `camera`). While on, an HTTP server on the Wi-Fi address serves `/stream`, `/snapshot.jpg` and `/`. No password: LAN only.
-    - Picture sizes (2026-10-13): 1920x1080, 1280x720, 1024x576, 720x480, 640x360.
-      - The sensor always runs at 1920x1080. The PPA scales a centred block in steps of 1/16, so smaller sizes lose 3–11 % at the edges, and 720x480 (3:2) loses 25 % of the width.
-      - Sizes must be multiples of 16 x 8 for the JPEG encoder, so there is no 960x540.
-      - All five run on the board. At 1024x576: 4.8 frames/s, 31 KB a frame, 1.25 Mbit/s, 61 KB internal RAM free.
-      - The PPA output buffer needs a cache-line aligned address and size. IDF's `jpeg_alloc_encoder_mem` aligns only its OUTPUT direction.
-    - The sensor only runs while someone watches or asks for a snapshot. Off frees about 12 MB PSRAM.
-    - All its tasks are on core 0: `camera` and `cam_http0..2` (stacks in PSRAM), `httpd`. `camera` needs 8 KB: 4 KB overflowed on the board.
-    - `components/board/board_camera.c`: `esp_video` 2.1.0 on the shared I2C bus (SCCB 100 kHz), no reset or power-down pin, LDO_VO3 shared with DSI.
-      - **esp_video creates `isp_task` (priority 11) without a core.** `board_camera.c` wraps `xTaskCreatePinnedToCore` and `xTaskCreateStaticPinnedToCore` (`-Wl,--wrap` in board's CMakeLists) and pins that task to core 0. Re-check this when updating esp_video.
-    - `components/cam_ov02c10/`: the vendor's OV02C10 driver, unmodified (no registry esp_cam_sensor has one; `VENDOR.md`). 1920x1080 RAW10 30 fps on 1 lane as in the vendor demo, with the vendor's IPA tuning (eco4 file, P4 below v3).
-    - Measured on the board (2026-10-13, no slaves):
-      - 4.8 of 5 frames/s, about 64 KB a frame, 2–3 Mbit/s; core 0 at 4–10 %;
-      - free internal RAM 85 KB when ready, 54–58 KB while streaming.
-    - Open:
-      - The picture is mirrored left to right (confirmed by text on the image). `CONFIG_CAMERA_HMIRROR` mirrors it in the PPA (untested).
-      - The effect on EtherCAT in OP is not measured yet.
-    - **Push to the server** (`camera_push.c`, 2026-10-13). The user's TrueNAS is at home and reached through DDNS.
-      - Settings › Camera › Send to server (key `campush`: on, URL, user, password in plain text). Console `cam push ...`.
-      - Task `cam_push` (core 0, 8 KB PSRAM stack) sends one endless chunked HTTP(S) POST of back-to-back JPEGs to go2rtc's `/api/stream.mjpeg?dst=<stream>` with Basic auth.
-        - go2rtc 1.9.14 splits frames at `FF D9 FF D8` (pkg/magic/mjpeg/producer.go), so there are no multipart headers.
-        - A short GET first catches a wrong login (401).
-        - Retries after 5 s, doubling up to 60 s.
-      - HTTPS is checked against the ESP-IDF certificate bundle (a public CA is needed). `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y` keeps TLS memory out of internal RAM.
-      - Tested on the bench against a Python stand-in for go2rtc: 401, 404 (wrong dst), self-signed TLS refused, 5 frames/s at 640x360 (0.55–0.63 Mbit/s).
-      - Not yet tested against real go2rtc or over the Internet.
-    - Server side, `server/camera/`: TrueNAS custom app `ehmi-camera.yaml` plus `config/{ingest,lan}/go2rtc.yaml`.
-      - Uses the official `alexxit/go2rtc:1.9.14` image; no image build.
-      - Deployed to the user's NAS folder `\\192.168.31.254\tuan\ESP32CAM` = `/mnt/FAMILY/TUAN/ESP32CAM` (2026-10-13). The real password is only there; the repo keeps the placeholder.
-      - Not run yet (this PC has no Docker).
-      - Service `net` (sleep) owns the network and ports. `ingest`, `go2rtc` and `recorder` join it (`network_mode: service:net`) and talk over 127.0.0.1, which go2rtc does not ask to log in, so the password lives in one file.
-      - `ingest` is the only port forwarded from the Internet (8556). It has a login and `allow_paths: [/api/stream.mjpeg]`, so stream editing and exec sources are not reachable.
-      - `go2rtc` (LAN): web page on 1984, RTSP on 8554.
-      - `recorder` (ffmpeg): writes 10-minute MP4 files to `recordings/`.
-      - With HTTPS behind nginx, request buffering must be off (`docs/CAMERA.md` 5.4).
+  - **Camera: not in `main`.** The user's machine rarely uses it, so it was taken out of the firmware on 2026-10-22. Everything is on branch `camera` (in the `backup` remote):
+    - components `camera` and `cam_ov02c10`, `board_camera.c`, Settings › Camera, console `cam`, `docs/CAMERA.md`, and the TrueNAS app in `server/camera/`;
+    - the last commit (1cfd103) switches the push to H.264 in MPEG-TS, because go2rtc 1.9.14 never accepted the JPEG push. Verified only up to go2rtc accepting a replayed capture; not yet with the ingest, a decoded picture or recordings.
+    - To bring it back, merge that branch, then delete `firmware/sdkconfig`.
   - `main/main.c`: EtherCAT bring-up app (scan → compare → OP or hold in PRE-OP; cyclic PDO, stats), starts the HMI and publishes the bus status to it.
-  - `main/app_console.c`: console commands on USB-Serial-JTAG (`topo`, `scan`, `accept`, `recheck`, `forget yes`, `stop`, `selftest` (topology + axis logic), `panel [new|old]`, `display [bright N | rgb R G B | reset | dim S | off S | wake]`, `axis [n on|off|reset|stop|qstop|home|move|rel|jog]`; `docs/SETUP.md` 7c, `path [stop | line X Y dx dy | cw|ccw X Y i j [deg]] [rev/s] [ms]` (two-axis CSP path in motor revolutions; 7e), `page <name>` (open an HMI page without touch), `cpu [n]` (CPU load and LVGL frames/s), `screenshot` (with `tools/screenshot.py`), `touchlog`, `sdo <pos> <index hex> [sub]` and `sdo <pos> rack` (CoE reads through the SDO worker, with the abort code), `store [test]` (machine store keys and space; `test` times ten 1 KB saves), `clock [YYYY-MM-DD HH:MM[:SS]]`, `mem`, `wifi [on|off|scan|join <ssid> [pw]|forget|tasks]`, `cam [on|off|size WxH|push [on|off|url <address>|login <user> [pw]]]` (camera and push state, address, frames/s, picture size; `docs/CAMERA.md`; the console line is 256 characters for the push URL), `ntp [on|off|server <name>|sync]`, `alarms [ack]`).
+  - `main/app_console.c`: console commands on USB-Serial-JTAG (`topo`, `scan`, `accept`, `recheck`, `forget yes`, `stop`, `selftest` (topology + axis logic), `panel [new|old]`, `display [bright N | rgb R G B | reset | dim S | off S | wake]`, `axis [n on|off|reset|stop|qstop|home|move|rel|jog]`; `docs/SETUP.md` 7c, `path [stop | line X Y dx dy | cw|ccw X Y i j [deg]] [rev/s] [ms]` (two-axis CSP path in motor revolutions; 7e), `page <name>` (open an HMI page without touch), `cpu [n]` (CPU load and LVGL frames/s), `screenshot` (with `tools/screenshot.py`), `touchlog`, `sdo <pos> <index hex> [sub]` and `sdo <pos> rack` (CoE reads through the SDO worker, with the abort code), `store [test]` (machine store keys and space; `test` times ten 1 KB saves), `clock [YYYY-MM-DD HH:MM[:SS]]`, `mem`, `wifi [on|off|scan|join <ssid> [pw]|forget|tasks]`, `ntp [on|off|server <name>|sync]`, `alarms [ack]`).
     - The LCD panel variant is stored in NVS and takes effect after a reset.
 - `docs/BOARD.md` has the reconciled pin map and subsystems. `docs/ETHERCAT_PLAN.md` has the architecture and phases. `docs/SETUP.md` covers toolchain, build, flashing and smoke tests. Read them before touching hardware code.
 - `docs/SLAVES_LEADSHINE.md` covers the slaves. Read it before writing any slave configuration code.
@@ -209,7 +177,7 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
 - **Panel variants:** New and Old differ only in the JD9165 init table and HBP (136 vs 160); pins are identical. A back label with "V2" means **New** panel, but factory firmware named "V2.x" is for the **Old** panel.
   - The user's module label ends in "V2", so it is the **New** panel, which is the firmware default (2026-10-10). Not yet confirmed on screen.
 - **ESP32-C6** uses ESP-Hosted SDIO slot 1 (CLK18, CMD19, D0-3 = 14-17) with reset on GPIO54 (vendor demo sdkconfig; esp_hosted's P4 defaults). Module-internal; used for Wi-Fi by `components/net`. The vendor package ships the C6 firmware `8-Burn operation/Burn files/JC-C6-slave_v2.3.2.bin`; the board's C6 reports esp_hosted **2.3.0** (boot log 2026-10-11: "Version mismatch: Host [2.11.0] > Co-proc [2.3.0] ==> Upgrade co-proc to avoid RPC timeouts"). Scan, join and NTP work with it; upgrading the C6 is optional and untested.
-- **Camera:** an OV02C10 module is fitted on FPC2. It answers at I2C **0x36** with chip ID 0x5602 (2026-10-13). Its raw picture is mirrored left to right.
+- **Camera:** an OV02C10 module is fitted on FPC2. It answers at I2C **0x36** with chip ID 0x5602 (2026-10-13). Its raw picture is mirrored left to right. No firmware support in `main` (branch `camera`).
 - **RS485 / UART1:** TX 26, RX 27. MAX485 auto-direction, powered from 5 V, no 120 Ω termination.
 - **Console:** UART0 on GPIO37/38 (CN2). USB-Serial-JTAG on GPIO24/25.
 - **Free header GPIOs (JP1):** 1, 2, 3, 4, 5, 20 (ADC), 32, 33, 45 (check JP1-14 continuity first), 46, 47. 32/33 are the scope pins.
