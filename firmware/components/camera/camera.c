@@ -9,12 +9,15 @@
  * - switched off: stops the server, closes the device, frees the buffers.
  *
  * Frames: sensor -> CSI -> ISP (RGB565 1920x1080, CAP_BUFS buffers of esp_video) -> PPA (scaled to the
- * chosen size and mirrored if asked; skipped at full size) -> hardware JPEG, at most
- * CONFIG_CAMERA_MAX_FPS a second -> one of JPEG_BUFS buffers. The stream tasks (one per open
- * request, stacks in PSRAM) and the push to a server (camera_push.c) always send the newest JPEG, so
- * a slow viewer skips frames instead of queueing them. A JPEG buffer is never overwritten while a
- * task sends it: every sender holds at most one, so N_WORKERS + 2 buffers (stream tasks, push, newest)
- * always leave one free for the encoder.
+ * chosen size and mirrored if asked; skipped at full size), at most CONFIG_CAMERA_MAX_FPS a second.
+ * Then, depending on who wants it:
+ * - LAN viewers and snapshots: hardware JPEG -> one of JPEG_BUFS buffers. The stream tasks (one per
+ *   open request, stacks in PSRAM) always send the newest JPEG, so a slow viewer skips frames instead
+ *   of queueing them. A JPEG buffer is never overwritten while a task sends it: every sender holds at
+ *   most one, so N_WORKERS + 1 buffers (stream tasks, newest) leave one free for the encoder.
+ * - The push (camera_push.c): a second PPA pass to YUV420, the input of the H.264 encoder, into one of
+ *   YUV_BUFS buffers, allocated only while the push runs. The push encodes the newest one when it is
+ *   ready for the next frame; a frame it skips is never encoded, so the H.264 stream has no gaps.
  *
  * HTTP requests are handed from the server task to the stream tasks as async requests
  * (httpd_req_async_handler_begin), so a running stream never blocks the server.
@@ -62,7 +65,8 @@ static const char *TAG = "camera";
 #define POLL_MS         250   /* camera task while the sensor is stopped */
 #define CAP_BUFS        2     /* as the vendor demo (video_lcd_display EXAMPLE_CAM_BUF_COUNT) */
 #define N_WORKERS       (CONFIG_CAMERA_MAX_VIEWERS + 1) /* streams plus one snapshot */
-#define JPEG_BUFS       (N_WORKERS + 2) /* senders, push, and one for the encoder */
+#define JPEG_BUFS       (N_WORKERS + 1) /* senders and one for the encoder */
+#define YUV_BUFS        2     /* the push encodes one while the newest frame goes into the other */
 #define JPEG_TIMEOUT_MS 200
 #define DQBUF_TIMEOUT_S 1
 #define DQBUF_FAILS_MAX 3     /* timeouts in a row before the camera counts as failed */
@@ -110,6 +114,15 @@ typedef struct {
 } jpeg_slot_t;
 
 typedef struct {
+    uint8_t *buf; /* YUV420 for the H.264 encoder */
+    size_t cap;
+    uint16_t width, height;
+    uint32_t seq;
+    int64_t time_us; /* captured */
+    uint8_t users;   /* the push encoding it */
+} yuv_slot_t;
+
+typedef struct {
     httpd_req_t *req; /* async copy, completed by the stream task */
     bool stream;
 } work_t;
@@ -123,6 +136,9 @@ static camera_status_t s_st;
 static jpeg_slot_t s_jpeg[JPEG_BUFS];
 static int s_newest = -1; /* slot of the newest frame */
 static uint32_t s_seq;    /* its number */
+static yuv_slot_t s_yuv[YUV_BUFS]; /* .buf set while the push runs */
+static int s_yuv_newest = -1;
+static uint32_t s_yuv_seq;
 static uint8_t s_viewers; /* stream requests taken (queued or sending) */
 static uint8_t s_busy;    /* stream tasks taken */
 static bool s_push_busy;  /* a push session runs (camera_push.c) */
@@ -149,7 +165,7 @@ static struct {
     uint32_t ox, oy; /* its offset (centred) */
 } s_scale;
 static ppa_client_handle_t s_ppa;
-static uint8_t *s_scaled; /* PPA output, JPEG input */
+static uint8_t *s_scaled; /* PPA output in RGB565 at the picture size; NULL when not needed */
 static size_t s_scaled_size;
 static bool s_streaming; /* sensor running */
 static int s_warmup;
@@ -282,19 +298,35 @@ bool camera_serving(void)
     return serving();
 }
 
-int camera_frame_take(uint32_t *seen, const uint8_t **buf, size_t *len)
+int camera_yuv_take(uint32_t *seen, camera_yuv_frame_t *f)
 {
-    const int slot = slot_take_newer(seen);
-    if (slot >= 0) {
-        *buf = s_jpeg[slot].buf; /* held: the encoder leaves it alone until released */
-        *len = s_jpeg[slot].len;
+    int slot = -1;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_yuv_newest >= 0 && s_yuv[s_yuv_newest].seq != *seen) {
+        slot = s_yuv_newest;
+        yuv_slot_t *y = &s_yuv[slot];
+        y->users++; /* held: the camera task leaves it alone until released */
+        *seen = y->seq;
+        *f = (camera_yuv_frame_t){.buf = y->buf, .len = (size_t)y->width * y->height * 3 / 2,
+                                  .width = y->width, .height = y->height, .time_us = y->time_us};
     }
+    xSemaphoreGive(s_lock);
     return slot;
 }
 
-void camera_frame_release(int slot)
+void camera_yuv_release(int slot)
 {
-    slot_release(slot, 0); /* the push counts its own bytes */
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_yuv[slot].users--;
+    xSemaphoreGive(s_lock);
+}
+
+uint8_t *camera_dma_alloc(size_t size, size_t *got)
+{
+    /* PSRAM, address and size aligned to the cache line, as the PPA wants for its output; IDF's JPEG
+     * allocator does that for its OUTPUT direction only (jpeg_encode.c, jpeg_alloc_encoder_mem). */
+    const jpeg_encode_memory_alloc_cfg_t c = {.buffer_direction = JPEG_ENC_ALLOC_OUTPUT_BUFFER};
+    return jpeg_alloc_encoder_mem(size, &c, got);
 }
 
 void camera_frame_wait(uint32_t ms)
@@ -496,6 +528,56 @@ static bool server_stop(void)
     return true;
 }
 
+/* ---- YUV420 buffers for the push (camera task) ---- */
+
+static void yuv_free(void)
+{
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    for (int i = 0; i < YUV_BUFS; i++) {
+        heap_caps_free(s_yuv[i].buf); /* the push holds none: it left before (streams_stop, apply) */
+        s_yuv[i] = (yuv_slot_t){0};
+    }
+    s_yuv_newest = -1;
+    xSemaphoreGive(s_lock);
+}
+
+/** @return false if there is not enough PSRAM */
+static bool yuv_alloc(void)
+{
+    /* The encoder works in 16 x 16 macroblocks: room for the height rounded up. */
+    const size_t size = (size_t)s_st.width * ((s_st.height + 15u) & ~15u) * 3 / 2;
+    for (int i = 0; i < YUV_BUFS; i++) {
+        size_t got = 0;
+        uint8_t *buf = camera_dma_alloc(size, &got);
+        if (buf == NULL) {
+            yuv_free();
+            return false;
+        }
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        s_yuv[i] = (yuv_slot_t){.buf = buf, .cap = got};
+        xSemaphoreGive(s_lock);
+    }
+    return true;
+}
+
+/** A slot the push does not hold; the newest frame only if nothing else is free. */
+static int yuv_slot_for_writer(void)
+{
+    int slot = -1;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    for (int i = 0; i < YUV_BUFS && slot < 0; i++) {
+        if (s_yuv[i].buf && s_yuv[i].users == 0 && i != s_yuv_newest) {
+            slot = i;
+        }
+    }
+    if (slot < 0 && s_yuv_newest >= 0 && s_yuv[s_yuv_newest].users == 0) {
+        slot = s_yuv_newest;
+        s_yuv_newest = -1;
+    }
+    xSemaphoreGive(s_lock);
+    return slot;
+}
+
 /* ---- Video device (camera task) ---- */
 
 static void device_close(void)
@@ -527,6 +609,7 @@ static void device_close(void)
     }
     s_newest = -1;
     xSemaphoreGive(s_lock);
+    yuv_free();
     s_open = false;
 }
 
@@ -624,15 +707,12 @@ static const char *device_open(void)
     if (why[0]) {
         return why;
     }
+    const ppa_client_config_t pc = {.oper_type = PPA_OPERATION_SRM}; /* scaling, and YUV420 for the push */
+    if (ppa_register_client(&pc, &s_ppa) != ESP_OK) {
+        return "PPA did not start";
+    }
     if (s_scale.on) {
-        const ppa_client_config_t pc = {.oper_type = PPA_OPERATION_SRM};
-        if (ppa_register_client(&pc, &s_ppa) != ESP_OK) {
-            return "PPA did not start";
-        }
-        /* The PPA writes it: address and size aligned to the cache line, which IDF's JPEG allocator
-         * only does for its OUTPUT direction (jpeg_encode.c, jpeg_alloc_encoder_mem). */
-        const jpeg_encode_memory_alloc_cfg_t ic = {.buffer_direction = JPEG_ENC_ALLOC_OUTPUT_BUFFER};
-        s_scaled = jpeg_alloc_encoder_mem(w * h * 2, &ic, &s_scaled_size);
+        s_scaled = camera_dma_alloc(w * h * 2, &s_scaled_size);
         if (s_scaled == NULL) {
             return "No memory for the scaled picture";
         }
@@ -642,10 +722,9 @@ static const char *device_open(void)
         return "JPEG encoder did not start";
     }
     /* A JPEG of this sensor at quality <= 80 stays far below half the RGB565 size (not measured). */
-    const jpeg_encode_memory_alloc_cfg_t mc = {.buffer_direction = JPEG_ENC_ALLOC_OUTPUT_BUFFER};
     for (int i = 0; i < JPEG_BUFS; i++) {
         size_t got = 0;
-        uint8_t *buf = jpeg_alloc_encoder_mem(w * h / 2, &mc, &got);
+        uint8_t *buf = camera_dma_alloc(w * h / 2, &got);
         if (buf == NULL) {
             return "No memory for the JPEG buffers";
         }
@@ -726,13 +805,8 @@ static void encode(const uint8_t *src, uint32_t len)
     s_jpeg[slot].len = out;
     s_jpeg[slot].seq = ++s_seq;
     s_newest = slot;
-    s_st.frames++;
     s_st.frame_bytes = out;
     xSemaphoreGive(s_lock);
-    s_win_frames++;
-    /* Wakes every task waiting now; the bit is cleared at once for the next frame. */
-    (void)xEventGroupSetBits(s_ev, EV_FRAME);
-    (void)xEventGroupClearBits(s_ev, EV_FRAME);
 }
 
 /** Sensor picture to the chosen size (and mirrored if asked) into s_scaled. */
@@ -758,6 +832,42 @@ static bool scale(const uint8_t *src)
     return true;
 }
 
+/** RGB565 at the picture size to YUV420 (BT.601, limited range) for the push's H.264 encoder. */
+static void to_yuv(const uint8_t *src, int64_t time_us)
+{
+    const int slot = yuv_slot_for_writer();
+    if (slot < 0) {
+        return;
+    }
+    /* A separate 1:1 pass: with YUV420 output the PPA rounds the scale down to an even number of
+     * 16ths (ppa_srm.c, "Block x/(y) cannot be scaled to odd number"), and 1280x720 and 1024x576
+     * scale by 11/16 and 9/16. */
+    const ppa_srm_oper_config_t op = {
+        .in = {.buffer = src, .pic_w = s_st.width, .pic_h = s_st.height, .block_w = s_st.width,
+               .block_h = s_st.height, .srm_cm = PPA_SRM_COLOR_MODE_RGB565},
+        .out = {.buffer = s_yuv[slot].buf, .buffer_size = s_yuv[slot].cap, .pic_w = s_st.width,
+                .pic_h = s_st.height, .srm_cm = PPA_SRM_COLOR_MODE_YUV420,
+                .yuv_range = PPA_COLOR_RANGE_LIMIT, .yuv_std = PPA_COLOR_CONV_STD_RGB_YUV_BT601},
+        .rotation_angle = PPA_SRM_ROTATION_ANGLE_0,
+        .scale_x = 1.0f,
+        .scale_y = 1.0f,
+        .mode = PPA_TRANS_MODE_BLOCKING,
+    };
+    const esp_err_t err = ppa_do_scale_rotate_mirror(s_ppa, &op);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "PPA to YUV420: %s", esp_err_to_name(err));
+        return;
+    }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    yuv_slot_t *y = &s_yuv[slot];
+    y->width = s_st.width;
+    y->height = s_st.height;
+    y->time_us = time_us;
+    y->seq = ++s_yuv_seq;
+    s_yuv_newest = slot;
+    xSemaphoreGive(s_lock);
+}
+
 /** One frame from the sensor; compressed when the frame-rate limit allows. */
 static void capture(void)
 {
@@ -778,10 +888,32 @@ static void capture(void)
         const int64_t period = 1000000 / CONFIG_CAMERA_MAX_FPS;
         s_next_frame_us = (s_next_frame_us && now - s_next_frame_us < period) ? s_next_frame_us + period
                                                                                : now + period;
-        if (!s_scale.on) {
-            encode(s_cap[b.index], b.bytesused);
-        } else if (scale(s_cap[b.index])) {
-            encode(s_scaled, (uint32_t)s_st.width * s_st.height * 2);
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        const bool jpeg = s_viewers > 0 || (int32_t)(s_want_until - xTaskGetTickCount()) > 0;
+        const bool yuv = s_push_busy && s_yuv[0].buf != NULL;
+        xSemaphoreGive(s_lock);
+        const uint8_t *src = s_cap[b.index];
+        uint32_t len = b.bytesused;
+        bool ok = true;
+        if (s_scale.on && (jpeg || yuv)) {
+            ok = scale(src);
+            src = s_scaled;
+            len = (uint32_t)s_st.width * s_st.height * 2;
+        }
+        if (ok && jpeg) {
+            encode(src, len);
+        }
+        if (ok && yuv) {
+            to_yuv(src, now);
+        }
+        if (ok && (jpeg || yuv)) {
+            xSemaphoreTake(s_lock, portMAX_DELAY);
+            s_st.frames++;
+            xSemaphoreGive(s_lock);
+            s_win_frames++;
+            /* Wakes every task waiting now; the bit is cleared at once for the next frame. */
+            (void)xEventGroupSetBits(s_ev, EV_FRAME);
+            (void)xEventGroupClearBits(s_ev, EV_FRAME);
         }
     }
     (void)ioctl(s_fd, VIDIOC_QBUF, &b);
@@ -854,6 +986,20 @@ static void apply(void)
         xSemaphoreTake(s_lock, portMAX_DELAY);
         s_serving = true; /* after a size change */
         xSemaphoreGive(s_lock);
+    }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    const bool push = s_push_busy;
+    const bool have_yuv = s_yuv[0].buf != NULL;
+    xSemaphoreGive(s_lock);
+    static bool yuv_failed; /* logged once per push session */
+    if (push && !have_yuv && !yuv_failed && !yuv_alloc()) {
+        yuv_failed = true; /* the push reports "No picture from the camera" */
+        ESP_LOGW(TAG, "no PSRAM for the push's YUV420 buffers");
+    } else if (!push) {
+        yuv_failed = false;
+        if (have_yuv) {
+            yuv_free();
+        }
     }
     if (demand) {
         s_demand_at = xTaskGetTickCount();

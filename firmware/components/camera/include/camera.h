@@ -8,8 +8,8 @@
  *   /              a page with the live picture
  *   /stream        MJPEG (multipart/x-mixed-replace), at most CONFIG_CAMERA_MAX_FPS frames/s
  *   /snapshot.jpg  one JPEG
- * It can also push its frames to go2rtc on a server reached through the Internet (camera_push_*,
- * camera_push.c), so nothing needs to reach into the plant network.
+ * It can also push its picture as H.264 to go2rtc on a server reached through the Internet
+ * (camera_push_*, camera_push.c), so nothing needs to reach into the plant network.
  * The sensor only runs while someone watches, the push sends or a snapshot is asked for, so an idle
  * camera costs no memory bandwidth. Off, the server is stopped and the camera's memory is freed.
  *
@@ -69,7 +69,7 @@ typedef enum {
 /** Push settings for display; the password is never read back. */
 typedef struct {
     bool on;
-    char url[CAMERA_PUSH_URL_MAX + 1];   /*!< e.g. https://home.example.net:8555/api/stream.mjpeg?dst=ehmi */
+    char url[CAMERA_PUSH_URL_MAX + 1];   /*!< e.g. https://home.example.net:8556/api/stream.ts?dst=ehmi */
     char user[CAMERA_PUSH_USER_MAX + 1]; /*!< "" = no login */
     bool has_password;
 } camera_push_cfg_t;

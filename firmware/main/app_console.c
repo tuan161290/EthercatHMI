@@ -947,7 +947,7 @@ static int cmd_cam_push(int argc, char **argv)
         err = camera_push_set(NULL, argv[3], argc == 5 ? argv[4] : "");
     } else {
         printf("Use: cam push | cam push on|off | cam push url <address> | cam push login <user> [password]\n"
-               "     e.g. cam push url https://home.example.net:8555/api/stream.mjpeg?dst=ehmi\n");
+               "     e.g. cam push url https://home.example.net:8556/api/stream.ts?dst=ehmi\n");
         return 1;
     }
     if (err != ESP_OK) {

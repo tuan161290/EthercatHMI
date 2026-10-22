@@ -2,31 +2,42 @@
  * Push (camera.h): the HMI sends its JPEG frames to go2rtc on a server that it reaches through the
  * Internet (DDNS), so nothing needs to reach into the plant network. docs/CAMERA.md section 5.
  *
- * One endless HTTP(S) POST to the address set, e.g. https://home.example.net:8555/api/stream.mjpeg?dst=ehmi
- * - go2rtc 1.9.14 takes a POST to /api/stream.mjpeg as the source of stream `dst`
- *   (internal/mjpeg/mjpeg.go:130-191).
- * - It splits the body where one JPEG ends and the next starts (FF D9 FF D8,
- *   pkg/magic/mjpeg/producer.go:47), so the frames go back to back without multipart headers.
- * - The length is not known: chunked transfer encoding, framed here (esp_http_client only sets the
- *   header for a write length of -1 and writes raw bytes).
+ * One endless HTTP(S) POST of H.264 in MPEG-TS to the address set, e.g.
+ * https://home.example.net:8556/api/stream.ts?dst=ehmi
+ * - go2rtc 1.9.14 takes a POST to /api/stream.ts as the source of stream `dst` and keeps reading it
+ *   while nobody watches (internal/mpegts/mpegts.go inputMpegTS, pkg/mpegts/producer.go Start), so a
+ *   viewer or the recorder can join at any time.
+ * - Not MJPEG: a POST to /api/stream.mjpeg must be multipart, and its reader stops at once when
+ *   nobody watches at that moment ("mjpeg: no receivers", pkg/mpjpeg/producer.go). The first version
+ *   of this file (2026-10-13) sent bare JPEGs there and never got through.
+ * - The camera task makes YUV420 frames; this task encodes the newest one with the P4's hardware
+ *   H.264 encoder (esp_h264) whenever it is ready for the next, so a slow connection lowers the frame
+ *   rate instead of breaking the stream. A key frame (with SPS and PPS) every H264_GOP_S seconds.
+ * - MPEG-TS: camera_ts.c. The length is not known: chunked transfer encoding, framed here
+ *   (esp_http_client only sets the header for a write length of -1 and writes raw bytes).
  * - Login: HTTP Basic (go2rtc api.username/password). https:// is checked against the ESP-IDF
  *   certificate bundle; mbedTLS memory is in PSRAM (sdkconfig.defaults).
  *
  * The "cam_push" task (core 0, stack in PSRAM) runs while the push is on, the camera serves and Wi-Fi
- * is connected. A session first sends a short GET to the same address: go2rtc answers 401 for a
+ * is connected. The encoder exists only during a session; its buffers are in PSRAM (camera_h264_mem.c). A session first sends a short GET to the same address: go2rtc answers 401 for a
  * wrong login at once, while for the POST it would only show after the body. Failures are retried
  * after 5 s, doubling up to 60 s. Settings in the machine store (key "campush"; the password in plain
  * text, as the Wi-Fi password).
  */
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 #include "camera_internal.h"
+#include "camera_ts.h"
 #include "esp_check.h"
 #include "esp_crt_bundle.h"
+#include "esp_h264_enc_single_hw.h"
+#include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_tls_errors.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -46,6 +57,11 @@ static const char *TAG = "cam_push";
 #define RETRY_MAX_MS   60000
 #define FRAME_WAIT_MS  100
 #define NO_FRAME_MS    10000
+#define H264_GOP_S     2  /* a key frame every 2 s: a viewer that joins waits at most that long */
+#define H264_QP_MIN    20
+#define H264_QP_MAX    42 /* the rate control never goes coarser than this */
+#define URL_OLD        "/api/stream.mjpeg" /* the push of the first version */
+#define URL_NEW        "/api/stream.ts"
 
 typedef struct {
     uint8_t version;
@@ -136,7 +152,7 @@ static bool write_chunk(esp_http_client_handle_t h, const uint8_t *data, size_t 
     return write_all(h, head, (size_t)n) && write_all(h, data, len) && write_all(h, "\r\n", 2);
 }
 
-/** Why a connection failed: TLS (certificate) or plain network. */
+/** Why a connection failed: network (esp-tls opens plain TCP too) or TLS (certificate). */
 static void connect_reason(esp_http_client_handle_t h, esp_err_t err, char *out, size_t len)
 {
     int tls_code = 0, tls_flags = 0;
@@ -145,6 +161,12 @@ static void connect_reason(esp_http_client_handle_t h, esp_err_t err, char *out,
     if (tls_flags != 0 || tls_code == -MBEDTLS_ERR_X509_CERT_VERIFY_FAILED) {
         /* Not signed by a CA of the ESP-IDF bundle (a self-signed one, say), expired, or another name */
         snprintf(out, len, "Server certificate not trusted (needs a public CA)");
+    } else if (tls == ESP_ERR_ESP_TLS_CANNOT_RESOLVE_HOSTNAME) {
+        snprintf(out, len, "Server name not found (DNS)");
+    } else if (tls == ESP_ERR_ESP_TLS_CONNECTION_TIMEOUT) {
+        snprintf(out, len, "Server not reachable: no answer (port forwarding?)");
+    } else if (tls == ESP_ERR_ESP_TLS_FAILED_CONNECT_TO_HOST) {
+        snprintf(out, len, "Server not reachable: connection refused");
     } else if (tls != ESP_OK && tls != ESP_FAIL) {
         snprintf(out, len, "Secure connection failed (%s)", esp_err_to_name(tls));
     } else {
@@ -166,7 +188,157 @@ static void status_reason(int status, char *out, size_t len)
     }
 }
 
+/** An address of the first version (JPEG to /api/stream.mjpeg) to /api/stream.ts. @return true if changed */
+static bool url_to_ts(char *url)
+{
+    char *p = strstr(url, URL_OLD);
+    if (p == NULL) {
+        return false;
+    }
+    char *rest = p + sizeof(URL_OLD) - 1;
+    memmove(p + sizeof(URL_NEW) - 1, rest, strlen(rest) + 1); /* shorter: stays inside the string */
+    memcpy(p, URL_NEW, sizeof(URL_NEW) - 1);
+    return true;
+}
+
 /* ---- Session (push task) ---- */
+
+/** H.264 bit rate for a picture size: CONFIG_CAMERA_H264_KBPS at 1920x1080, in proportion to the area. */
+static uint32_t h264_bitrate(uint16_t w, uint16_t h)
+{
+    return (uint32_t)((uint64_t)CONFIG_CAMERA_H264_KBPS * 1000u * w * h / (1920u * 1080u));
+}
+
+static esp_h264_enc_handle_t encoder_new(uint16_t w, uint16_t h)
+{
+    const esp_h264_enc_cfg_hw_t cfg = {
+        .pic_type = ESP_H264_RAW_FMT_O_UYY_E_VYY, /* the only input of the encoder on P4 v1.x */
+        .gop = H264_GOP_S * CONFIG_CAMERA_MAX_FPS,
+        .fps = CONFIG_CAMERA_MAX_FPS,
+        .res = {.width = w, .height = h},
+        .rc = {.bitrate = h264_bitrate(w, h), .qp_min = H264_QP_MIN, .qp_max = H264_QP_MAX},
+    };
+    esp_h264_enc_handle_t enc = NULL;
+    esp_h264_err_t err = esp_h264_enc_hw_new(&cfg, &enc);
+    if (err == ESP_H264_ERR_OK) {
+        err = esp_h264_enc_open(enc);
+        if (err != ESP_H264_ERR_OK) {
+            (void)esp_h264_enc_del(enc);
+            enc = NULL;
+        }
+    }
+    if (err != ESP_H264_ERR_OK) {
+        ESP_LOGW(TAG, "H.264 encoder %ux%u: error %d", w, h, (int)err);
+        return NULL;
+    }
+    ESP_LOGI(TAG, "H.264 %ux%u, %d frames/s at most, key frame every %d s, %" PRIu32 " kbit/s", w, h,
+             CONFIG_CAMERA_MAX_FPS, H264_GOP_S, h264_bitrate(w, h) / 1000);
+    return enc;
+}
+
+static void encoder_del(esp_h264_enc_handle_t enc)
+{
+    if (enc) {
+        (void)esp_h264_enc_close(enc);
+        (void)esp_h264_enc_del(enc);
+    }
+}
+
+#define FRAME_NONE  (-1) /* the session should end: settings, camera or Wi-Fi */
+#define FRAME_LATE  (-2) /* no frame for NO_FRAME_MS */
+
+/** The newest frame not seen yet, waiting for it. @return slot, FRAME_NONE or FRAME_LATE */
+static int next_frame(uint32_t *seen, camera_yuv_frame_t *f, uint32_t gen)
+{
+    const TickType_t start = xTaskGetTickCount();
+    while (camera_serving() && !cfg_changed(gen) && wifi_connected()) {
+        const int slot = camera_yuv_take(seen, f);
+        if (slot >= 0) {
+            return slot;
+        }
+        if ((xTaskGetTickCount() - start) * portTICK_PERIOD_MS > NO_FRAME_MS) {
+            return FRAME_LATE;
+        }
+        camera_frame_wait(FRAME_WAIT_MS);
+    }
+    return FRAME_NONE;
+}
+
+typedef struct {
+    esp_http_client_handle_t h;
+    uint32_t bytes; /* sent since the last rate sample */
+} sink_t;
+
+static bool sink_out(void *ctx, const uint8_t *data, size_t len)
+{
+    sink_t *s = ctx;
+    if (!write_chunk(s->h, data, len)) {
+        return false;
+    }
+    s->bytes += len;
+    return true;
+}
+
+typedef struct {
+    esp_h264_enc_handle_t enc;
+    uint8_t *bs; /* one encoded frame */
+    size_t bs_cap;
+    uint8_t *ts; /* TS_BATCH packets */
+    uint16_t w, h;
+} coder_t;
+
+/** Encode and send frames until the session should end. @return NULL, or why it failed */
+static const char *send_frames(esp_http_client_handle_t h, const coder_t *c, uint32_t gen, char *why, size_t len)
+{
+    sink_t sink = {.h = h};
+    ts_mux_t mux;
+    ts_mux_init(&mux, c->ts, sink_out, &sink);
+    uint32_t seen = 0;
+    int64_t t0 = -1;
+    int64_t window = esp_timer_get_time();
+    for (;;) {
+        camera_yuv_frame_t f;
+        const int slot = next_frame(&seen, &f, gen);
+        if (slot == FRAME_LATE) {
+            return "No picture from the camera";
+        } else if (slot < 0) {
+            return NULL;
+        }
+        if (f.width != c->w || f.height != c->h) {
+            camera_yuv_release(slot);
+            return NULL; /* new picture size: a new session with a new encoder */
+        }
+        if (t0 < 0) {
+            t0 = f.time_us;
+        }
+        const uint64_t pts = 90000u + (uint64_t)(f.time_us - t0) * 9u / 100u; /* 90 kHz from 1 s */
+        esp_h264_enc_in_frame_t in = {.raw_data = {.buffer = (uint8_t *)f.buf, .len = f.len}, .pts = (uint32_t)pts};
+        esp_h264_enc_out_frame_t out = {.raw_data = {.buffer = c->bs, .len = c->bs_cap}};
+        const esp_h264_err_t err = esp_h264_enc_process(c->enc, &in, &out);
+        camera_yuv_release(slot);
+        if (err != ESP_H264_ERR_OK) {
+            snprintf(why, len, "H.264 encoding failed (error %d)", (int)err);
+            return why;
+        }
+        const bool key = out.frame_type == ESP_H264_FRAME_TYPE_IDR || out.frame_type == ESP_H264_FRAME_TYPE_I;
+        if (!ts_mux_frame(&mux, c->bs, out.length, key, pts)) {
+            /* The server may have answered before it closed, e.g. 404 for an unknown stream name. */
+            snprintf(why, len, "Connection lost");
+            if (esp_http_client_fetch_headers(h) >= 0 && esp_http_client_get_status_code(h) >= 300) {
+                status_reason(esp_http_client_get_status_code(h), why, len);
+            }
+            return why;
+        }
+        const int64_t now = esp_timer_get_time();
+        if (now - window >= 1000000) {
+            xSemaphoreTake(s_lock, portMAX_DELAY);
+            s_kbit_s = (uint32_t)(sink.bytes * 8000LL / (now - window));
+            xSemaphoreGive(s_lock);
+            sink.bytes = 0;
+            window = now;
+        }
+    }
+}
 
 /**
  * Check the login, then send frames until the settings change, the camera stops serving or the
@@ -215,62 +387,50 @@ static const char *session(const cfg_t *c, uint32_t gen)
         return why;
     }
 
-    /* 2. The stream */
+    /* 2. The encoder, sized by the first frame */
     if (!camera_push_enter()) {
         esp_http_client_cleanup(h);
         return NULL; /* the camera stopped meanwhile */
     }
-    esp_http_client_set_method(h, HTTP_METHOD_POST);
-    esp_http_client_set_header(h, "Content-Type", "image/jpeg");
-    err = esp_http_client_open(h, -1); /* chunked */
     const char *result = NULL;
-    if (err != ESP_OK) {
-        connect_reason(h, err, why, sizeof(why));
-        result = why;
-    } else {
-        set_state(CAMERA_PUSH_SENDING, "");
-        uint32_t seen = 0, bytes = 0;
-        int64_t window = esp_timer_get_time();
-        TickType_t last = xTaskGetTickCount();
-        bool ok = true;
-        while (ok && camera_serving() && !cfg_changed(gen) && wifi_connected()) {
-            const uint8_t *buf;
-            size_t len;
-            const int slot = camera_frame_take(&seen, &buf, &len);
-            if (slot < 0) {
-                if ((xTaskGetTickCount() - last) * portTICK_PERIOD_MS > NO_FRAME_MS) {
-                    snprintf(why, sizeof(why), "No picture from the camera");
-                    result = why;
-                    break;
-                }
-                camera_frame_wait(FRAME_WAIT_MS);
-                continue;
-            }
-            last = xTaskGetTickCount();
-            ok = write_chunk(h, buf, len);
-            camera_frame_release(slot);
-            bytes += ok ? len : 0;
-            const int64_t now = esp_timer_get_time();
-            if (now - window >= 1000000) {
-                xSemaphoreTake(s_lock, portMAX_DELAY);
-                s_kbit_s = (uint32_t)(bytes * 8000LL / (now - window));
-                xSemaphoreGive(s_lock);
-                bytes = 0;
-                window = now;
-            }
+    coder_t k = {0};
+    uint32_t seen = 0;
+    camera_yuv_frame_t f;
+    const int slot = next_frame(&seen, &f, gen);
+    if (slot == FRAME_LATE) {
+        result = "No picture from the camera";
+    } else if (slot >= 0) {
+        k.w = f.width;
+        k.h = f.height;
+        camera_yuv_release(slot);
+        k.enc = encoder_new(k.w, k.h);
+        k.bs = camera_dma_alloc((size_t)k.w * k.h / 2, &k.bs_cap); /* a frame stays far below this at QP >= 20 */
+        k.ts = heap_caps_malloc(TS_BATCH * TS_PACKET, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (k.enc == NULL || k.bs == NULL || k.ts == NULL) {
+            result = "H.264 encoder did not start (no memory?)";
         }
-        if (!ok) {
-            /* The server may have answered before it closed, e.g. 404 for an unknown stream name. */
-            snprintf(why, sizeof(why), "Connection lost");
-            if (esp_http_client_fetch_headers(h) >= 0 && esp_http_client_get_status_code(h) >= 300) {
-                status_reason(esp_http_client_get_status_code(h), why, sizeof(why));
-            }
+    }
+
+    /* 3. The stream */
+    if (slot >= 0 && result == NULL) {
+        esp_http_client_set_method(h, HTTP_METHOD_POST);
+        esp_http_client_set_header(h, "Content-Type", "video/mp2t");
+        err = esp_http_client_open(h, -1); /* chunked */
+        if (err != ESP_OK) {
+            connect_reason(h, err, why, sizeof(why));
             result = why;
-        } else if (result == NULL) {
-            (void)write_all(h, "0\r\n\r\n", 5); /* end of the body */
+        } else {
+            set_state(CAMERA_PUSH_SENDING, "");
+            result = send_frames(h, &k, gen, why, sizeof(why));
+            if (result == NULL) {
+                (void)write_all(h, "0\r\n\r\n", 5); /* end of the body */
+            }
         }
     }
     camera_push_leave();
+    encoder_del(k.enc);
+    heap_caps_free(k.bs);
+    heap_caps_free(k.ts);
     esp_http_client_close(h);
     esp_http_client_cleanup(h);
     return result;
@@ -330,6 +490,10 @@ esp_err_t camera_push_start(void)
         c = (cfg_t){.version = BLOB_VERSION};
     }
     s_cfg = c;
+    if (url_to_ts(s_cfg.url)) {
+        ESP_LOGI(TAG, "push address changed to %s (H.264)", URL_NEW);
+        cfg_save();
+    }
     ESP_LOGI(TAG, "push %s%s%s", c.on ? "on" : "off", c.url[0] ? " to " : "", c.url);
     ESP_RETURN_ON_FALSE(xTaskCreatePinnedToCoreWithCaps(push_task, "cam_push", TASK_STACK, NULL, TASK_PRIO, &s_task, 0,
                                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS,
@@ -390,6 +554,7 @@ esp_err_t camera_push_set(const char *url, const char *user, const char *passwor
     xSemaphoreTake(s_lock, portMAX_DELAY);
     if (url) {
         strlcpy(s_cfg.url, url, sizeof(s_cfg.url));
+        (void)url_to_ts(s_cfg.url); /* an address from the first version's documents */
     }
     if (user) {
         strlcpy(s_cfg.user, user, sizeof(s_cfg.user));

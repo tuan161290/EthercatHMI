@@ -9,9 +9,17 @@
 #include <stdint.h>
 #include "camera.h"
 
+/** A YUV420 frame for the H.264 encoder: ESP_H264_RAW_FMT_O_UYY_E_VYY, the P4's YUV420 layout. */
+typedef struct {
+    const uint8_t *buf;
+    size_t len; /* width * height * 3 / 2 */
+    uint16_t width, height;
+    int64_t time_us; /* when it was captured (esp_timer) */
+} camera_yuv_frame_t;
+
 /**
- * Start a push session: the camera serves frames and keeps the sensor running until
- * camera_push_leave(). @return false while the camera does not serve (off, starting, size change)
+ * Start a push session: the camera serves frames, keeps the sensor running and makes YUV420 frames
+ * until camera_push_leave(). @return false while the camera does not serve (off, starting, size change)
  */
 bool camera_push_enter(void);
 void camera_push_leave(void);
@@ -20,14 +28,17 @@ void camera_push_leave(void);
 bool camera_serving(void);
 
 /**
- * Newest JPEG if it is not `*seen`: `*buf` and `*len` stay valid until camera_frame_release().
+ * Newest YUV420 frame if it is not `*seen`; `*f` stays valid until camera_yuv_release().
  * @return slot, or -1 if there is no newer frame
  */
-int camera_frame_take(uint32_t *seen, const uint8_t **buf, size_t *len);
-void camera_frame_release(int slot);
+int camera_yuv_take(uint32_t *seen, camera_yuv_frame_t *f);
+void camera_yuv_release(int slot);
 
-/** Wait at most `ms` for a new JPEG. */
+/** Wait at most `ms` for a new frame. */
 void camera_frame_wait(uint32_t ms);
+
+/** PSRAM for DMA (PPA, H.264): address and size aligned to the cache line. Free with heap_caps_free(). */
+uint8_t *camera_dma_alloc(size_t size, size_t *got);
 
 /** Load the push settings and start its task (camera_start()). */
 esp_err_t camera_push_start(void);

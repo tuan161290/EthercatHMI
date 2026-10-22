@@ -56,7 +56,7 @@ dependencies:
       require: private
       version: '>=4.4'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     targets:
     - esp32s3
@@ -276,6 +276,7 @@ dependencies:
     version: 9.5.0
 direct_dependencies:
 - espressif/esp_cam_sensor
+- espressif/esp_h264
 - espressif/esp_hosted
 - espressif/esp_lcd_jd9165
 - espressif/esp_lcd_touch
@@ -285,6 +286,6 @@ direct_dependencies:
 - espressif/esp_wifi_remote
 - idf
 - lvgl/lvgl
-manifest_hash: cc2353db57b7c3e9bf1ee36316c218349308e4ac04f67cf709ba3c5e4532528e
+manifest_hash: 33d7662d9fb16e48b33e1864b7a77af0362e8bbc8efc65ceee24793899f127bf
 target: esp32p4
 version: 2.0.0

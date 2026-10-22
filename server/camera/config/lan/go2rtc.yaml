@@ -1,5 +1,5 @@
 # go2rtc on the LAN side of the camera app (docs/CAMERA.md 5): web page http://<NAS>:1984,
-# RTSP rtsp://<NAS>:8554/ehmi, and H.264 for the recorder. Do not forward these ports.
+# RTSP rtsp://<NAS>:8554/ehmi, and the stream for the recorder. Do not forward these ports.
 
 api:
   listen: ":1984"
@@ -14,11 +14,13 @@ srtp:
   listen: ""
 
 streams:
-  # From the ingest go2rtc, over 127.0.0.1 (same network): no login needed from there.
-  ehmi: http://127.0.0.1:8556/api/stream.mjpeg?src=ehmi
-  # Or, when the NAS is on the HMI's LAN, straight from the HMI (the "Stream" line of
-  # Settings > Camera):
-  # ehmi: http://192.168.1.50/stream
+  # H.264 from the ingest go2rtc, over 127.0.0.1 (same network): no login needed from there.
+  ehmi: http://127.0.0.1:8556/api/stream.ts?src=ehmi
+  # The same for the recorder (ehmi-camera.yaml reads rtsp://127.0.0.1:8554/ehmi_h264). It is
+  # H.264 already, so nothing is encoded again.
+  ehmi_h264: http://127.0.0.1:8556/api/stream.ts?src=ehmi
 
-  # The same picture as H.264 for the recorder, encoded here by ffmpeg
-  ehmi_h264: ffmpeg:ehmi#video=h264
+  # Or, when the NAS is on the HMI's LAN, MJPEG straight from the HMI (the "Stream" line of
+  # Settings > Camera); then ffmpeg encodes it for the recorder:
+  # ehmi: http://192.168.1.50/stream
+  # ehmi_h264: ffmpeg:ehmi#video=h264

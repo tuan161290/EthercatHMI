@@ -575,7 +575,7 @@ void camera_res_size(camera_res_t res, uint16_t *w, uint16_t *h)
 }
 
 static camera_push_cfg_t s_push = {
-    .on = true, .url = "https://home.example.net:8555/api/stream.mjpeg?dst=ehmi", .user = "ehmi",
+    .on = true, .url = "https://home.example.net:8556/api/stream.ts?dst=ehmi", .user = "ehmi",
     .has_password = true,
 };
 

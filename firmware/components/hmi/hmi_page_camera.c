@@ -199,7 +199,7 @@ static void url_cb(lv_event_t *e)
 {
     (void)e;
     hmi_text_input("Server address",
-                   "Push address of go2rtc on the server, e.g. https://home.example.net:8555/api/stream.mjpeg?dst=ehmi",
+                   "Push address of go2rtc on the server, e.g. https://home.example.net:8556/api/stream.ts?dst=ehmi",
                    s_cam.push.url, false, 0, CAMERA_PUSH_URL_MAX, url_set_cb, NULL);
 }
 

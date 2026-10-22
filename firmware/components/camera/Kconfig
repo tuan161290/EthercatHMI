@@ -24,6 +24,15 @@ menu "Camera stream (components/camera)"
         help
             Higher is sharper and larger. The frame size shows in Settings > Camera.
 
+    config CAMERA_H264_KBPS
+        int "H.264 bit rate of the push at 1920x1080 (kbit/s)"
+        range 200 8000
+        default 2000
+        help
+            Target of the encoder's rate control for the push to the server. Smaller picture sizes
+            get a share in proportion to their area: about 890 kbit/s at 1280x720 and 220 kbit/s at
+            640x360. It goes out over the plant's Internet upload.
+
     config CAMERA_HMIRROR
         bool "Mirror the picture left to right"
         default n

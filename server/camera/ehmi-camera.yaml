@@ -14,10 +14,10 @@
 #   net       holds the network and the published ports and does nothing else, so it never
 #             restarts and the others keep their network when one of them restarts.
 #   ingest    go2rtc reached from the Internet: the router forwards the DDNS port to NAS 8556.
-#             It asks for the login and serves only /api/stream.mjpeg, where the HMI POSTs its
-#             frames.
+#             It asks for the login and serves only /api/stream.ts, where the HMI POSTs its
+#             picture (H.264 in MPEG-TS).
 #   go2rtc    LAN side: takes the stream from ingest, web page http://<NAS>:1984, RTSP
-#             rtsp://<NAS>:8554/ehmi, H.264 for the recorder. Do not forward 1984 or 8554.
+#             rtsp://<NAS>:8554/ehmi, and the stream for the recorder. Do not forward 1984 or 8554.
 #   recorder  10-minute MP4 files (fragmented: a cut leaves a playable file); deletes the ones
 #             older than KEEP_DAYS.
 
