@@ -148,11 +148,13 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
 - `firmware\flash.bat` (logic in `firmware\tools\flash.ps1`, `docs/SETUP.md` 2b) is the user's one-click build/flash/monitor menu. Before any write it checks the chip revision against `sdkconfig` and requires a 16 MB backup per board in `<drive>:\esp\backup\<MAC>\`. Keep `flash.ps1` UTF-8 **with BOM** (Vietnamese strings under PowerShell 5.1).
 - **Git, and the project lives outside ownCloud** (2026-10-12, because ownCloud lost files: virtual files unreadable while the client is off, dot files such as `.component_hash` never synced):
   - Working copy: `D:\Projects\EthercatHMI` on DESKTOP-2LDQI5D, branch `main`, `.gitignore` at the root.
-  - Remote `owncloud` = bare repo `D:\ownCloud\Tuan\Backup\EthercatHMI.git`. ownCloud uploads it to the server, so this is the off-machine backup. Other PCs `git clone` from it instead of working inside ownCloud.
-  - `git push` writes to two places: the `owncloud` remote has a second push URL, `D:\esp\backup\EthercatHMI.git` (same disk, outside ownCloud; also remote `backup`).
-  - Push from one PC at a time, and let ownCloud finish syncing before switching PCs: two pushes into the synced bare repo can leave conflicting files in `refs/`.
-  - The old copy `D:\ownCloud\Tuan\EthercatHMI` is frozen; do not edit there.
-  - Not in git, kept in ownCloud only: the vendor package zip (222 MB), `vendor/JC1060/`, `PGM/`.
+  - **Seafile since 2026-10-22** (the user left ownCloud). Remote `seafile` = bare repo `D:\SeaDrive\tuan161290\My Libraries\My Library\Tuan\Backup\EthercatHMI-seafile.git`. SeaDrive uploads it to the server, so this is the off-machine backup. Other PCs `git clone` from it instead of working inside a synced folder.
+  - `git push` writes to two places: the `seafile` remote has a second push URL, `D:\esp\backup\EthercatHMI.git` (same disk; also remote `backup`).
+  - Sync services drop files inside `.git` folders. Found on 2026-10-22: the ownCloud bare repo `D:\ownCloud\Tuan\Backup\EthercatHMI.git` had lost its pack files (pushes refused); the Seafile copies `Tuan\Backup\EthercatHMI.git` (no refs left; history only to e21b823) and `Tuan\EthercatHMI\.git` (`bad object refs/heads/main`) are broken too. None of them is used; the user decides when to delete them.
+    - After a push, check the Seafile repo: `git --git-dir="<seafile repo>" fsck --full` and `git ls-remote seafile`.
+  - Push from one PC at a time, and let SeaDrive finish syncing before switching PCs: two pushes into the synced bare repo can leave conflicting files in `refs/`.
+  - The old copy `D:\ownCloud\Tuan\EthercatHMI` (and its Seafile copy `Tuan\EthercatHMI`) is frozen; do not edit there.
+  - Not in git, kept in the cloud folder only (ownCloud, now Seafile): the vendor package zip (222 MB), `vendor/JC1060/`, `PGM/`.
   - Git is MinGit at `D:\esp\git\cmd\git.exe` (also in the user PATH).
   - `.gitattributes` is `* -text`: files are stored and checked out byte for byte. Git for Windows defaults to `core.autocrlf=true`, which turned every LF file into CRLF in a fresh clone. Most files are LF; SOEM, the ESI files and a few others are CRLF and must stay so.
   - After a change: `git add -A`, `git commit`, `git push`.
