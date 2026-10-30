@@ -140,6 +140,10 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
 
 ## Build / flash
 - ESP-IDF **v5.5.4** at `C:\esp\v5.5.4\esp-idf` (installed with EIM; v6.1 is also installed but the vendor BSP does not build on 6.x). Activate with `. C:\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1`.
+  - **Branch `idf6.1`** (2026-10-30) builds with ESP-IDF **v6.1** and still with 5.5.4 (version checks in `board_display.c` and `board_eth.c`; the IP101 driver and esp_lvgl_port 2.9 come from the registry only on IDF 6). Built without warnings; **not yet run on the board**. Worktree `D:\Projects\EthercatHMI-idf61`.
+    - On DESKTOP-2LDQI5D: IDF at `D:\esp\v6.1\esp-idf`, tools in `D:\esp\tools61` (separate from EIM's `D:\Espressif`), base Python `D:\esp\python312`. Activate: `$env:PATH = "D:\esp\python312;" + $env:PATH; $env:IDF_TOOLS_PATH = 'D:\esp\tools61'; . D:\esp\v6.1\esp-idf\export.ps1`. Build dir `D:\esp\build\ehmi61` (cmake + ninja as below, `-DPYTHON=D:\esp\tools61\python_env\idf6.1_py3.12_env\Scripts\python.exe`).
+    - IDF 6.1 still has `CONFIG_ESP32P4_SELECTS_REV_LESS_V3` (the board's P4 v1.3). Its default C library is picolibc, compiler GCC 15.2.
+    - Downloads from GitHub stall on this network: use `IDF_GITHUB_ASSETS=dl.espressif.com/github_assets` for the tools and `git submodule update --depth 1` per submodule.
   - The second PC (DESKTOP-NHHD9F1, project at `D:\OwnCloud\...`) has everything on **D:**: `D:\esp\v5.5.4\esp-idf`, `D:\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1`, build dir `D:\esp\build\ehmi`. Only v5.5.4 is installed there. `flash.ps1` picks C: or D: automatically (`docs/SETUP.md` section 0).
 - Always build out of tree (on the first two PCs the project root is still in an ownCloud-synced path with MAX_PATH 260; `flash.ps1` expects `<drive>:\esp\build\ehmi` everywhere):
   - `idf.py -B C:\esp\build\ehmi build`
