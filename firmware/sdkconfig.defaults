@@ -34,8 +34,9 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
 # Ethernet: internal EMAC, RMII. EtherCAT runs on raw frames, so lwIP is never attached.
+# RMII and its clock are set in board_eth.c (IDF 6 removed CONFIG_ETH_PHY_INTERFACE_RMII; on IDF 5.5
+# RMII is the P4's only choice anyway).
 CONFIG_ETH_USE_ESP32_EMAC=y
-CONFIG_ETH_PHY_INTERFACE_RMII=y
 CONFIG_ETH_IRAM_OPTIMIZATION=y
 # SOEM sends from the cycle task and from the mailbox/check task
 CONFIG_ETH_TRANSMIT_MUTEX=y

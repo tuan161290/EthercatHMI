@@ -1,6 +1,6 @@
 # Wi-Fi through the ESP32-C6 (ESP-Hosted over SDIO). esp_hosted as in the vendor demos for this
 # board (esp_brookesia_phone, xiaozhi: 2.11.7 with esp_wifi_remote "*", IDF 5.5.4).
 dependencies:
-  idf: ">=5.5,<6.0"
+  idf: ">=5.5,<7.0"
   espressif/esp_hosted: "2.11.7"
   espressif/esp_wifi_remote: "*"
