@@ -1,7 +1,7 @@
 # CLAUDE.md — EthercatHMI
 
 ## Purpose
-Firmware for an **HMI + EtherCAT master** on a Guition **JC1060P470C_I_W_Y**: a 7" 1024x600 MIPI-DSI display with an ESP32-P4 and an ESP32-C6 inside module U3 "JC-ESP32P4-M3". The EtherCAT master (SOEM) runs over the P4's internal EMAC and the on-board RJ45. The HMI uses LVGL 9.5 (shell and Main page written; boots on the board without errors since 2026-10-10, but nobody has yet checked the picture and touch on the screen).
+Firmware for an **HMI + EtherCAT master** on a Guition **JC1060P470C_I_W_Y**: a 7" 1024x600 MIPI-DSI display with an ESP32-P4 and an ESP32-C6 inside module U3 "JC-ESP32P4-M3". The EtherCAT master (SOEM) runs over the P4's internal EMAC and the on-board RJ45. The HMI uses LVGL 9.6 (shell and Main page written; boots on the board without errors since 2026-10-10, but nobody has yet checked the picture and touch on the screen).
 
 Target machine (planning stage; hardware not available yet): about **8 Leadshine EtherCAT axes (CiA402)** plus **Leadshine R1EC remote IO**.
 - ESI files are in `vendor/ESI/` (Leadshine L5N, L3N, CL3B-EC, R1EC; Fastech). The folder is **read-only**.
@@ -66,7 +66,8 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
     - `machine_alarm.c`: alarm list (Active / Acknowledged / Cleared) and a RAM history. `main/app_alarms.c` raises the codes listed in `docs/SETUP.md` 7d.
     - `ecat_catalog_gen.c` is generated: run `python tools/esi2catalog.py ../vendor/ESI/Leadshine -o components/ecat/ecat_catalog_gen.c` after adding an ESI file; never edit it by hand.
   - `components/board/`: `board_pins.h` (every GPIO number), `board_eth.c` (EMAC + IP101 bring-up, no lwIP) and `board_display.c` (DSI + JD9165 New/Old init tables, LEDC backlight, GT911 with RST/INT driven), `board_i2c.c` (shared I2C bus 1) and `board_rtc.c` (RX8025T).
-  - `components/hmi/`: LVGL 9.5 HMI in the Fluent light theme (`docs/HMI_THEME.md` section 6).
+  - `components/hmi/`: LVGL 9.6 HMI in the Fluent light theme (`docs/HMI_THEME.md` section 6).
+    - Object flags go through the per-flag setters and getters (`lv_obj_set_hidden()`, `lv_obj_set_clickable()`, `lv_obj_is_hidden()` …). `lv_obj_add_flag()`, `lv_obj_remove_flag()` and `lv_obj_has_flag()` are deprecated since LVGL 9.6 and removed in 10.
     - Done (all mockup pages): shell, Main, Manual › Jog and Teaching, IO monitor, Alarms, Settings list, Settings › Time, Servo, EtherCAT and System. Also Settings › Network (Wi-Fi + internet time, no mockup, 2026-10-11) and Manual › Interpolation (`hmi_page_interp.c`, two-axis CSP test with an XY plot, no mockup, 2026-10-12; `docs/SETUP.md` 7e).
     - `hmi_dropdown()` (hmi_widgets.c): combo box that drops its list under it (lv_dropdown, 52 px rows). The user asked for drop-down combo boxes to pick the interpolation axes (2026-10-12); the other axis pickers still open the `hmi_choice` roller.
     - `hmi_text_input()` (hmi_widgets.c): text entry with an on-screen keyboard (lv_buttonmatrix, printable ASCII; special keys are words because Open Sans has no arrow/keyboard glyphs; keys type on release so slide-off cancels).
@@ -166,7 +167,7 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
   - After a change: `git add -A`, `git commit`, `git push`.
 - Keep settings in `sdkconfig.defaults`; do not commit `sdkconfig`, `build/` or `managed_components/`.
   - After changing the defaults, delete `firmware/sdkconfig` so IDF regenerates it.
-  - Commit `firmware/dependencies.lock`. Versions are pinned in each component's `idf_component.yml`: LVGL 9.5.0, esp_lvgl_port ~2.8.0 (2.9.0 breaks on IDF 5.5.4), esp_lcd_jd9165 2.0.2, GT911 1.2.1.
+  - Commit `firmware/dependencies.lock`. Versions are pinned in each component's `idf_component.yml`: LVGL 9.6.0~1, esp_lvgl_port 2.9.0 on IDF 6 and ~2.8.0 on IDF 5.5.4 (2.9.0 needs IDF 6), esp_lcd_jd9165 2.0.2, GT911 1.2.1.
 - `firmware/managed_components`: on the first PC a junction to `C:\esp\managed\ehmi`, which keeps LVGL out of ownCloud (`docs/SETUP.md` section 1). In `D:\Projects\EthercatHMI` it is a plain folder (git ignores it).
 - On DESKTOP-2LDQI5D loopback TCP may be broken (FortiClient suspected), which makes `idf.py` hang silently. Then configure with `cmake -G Ninja -DPYTHON_DEPS_CHECKED=1 -DPYTHON=<venv python> -DESP_PLATFORM=1 -DCCACHE_ENABLE=0 D:\Projects\EthercatHMI\firmware` in `D:\esp\build\ehmi`, build with `ninja`, flash with `python -m esptool ... write_flash "@flash_args"` (`docs/SETUP.md` section 0).
 - Partition table: `firmware/partitions.csv`, with a 6 MB app, nvs at 0x9000 and `mstore` (machine store, 512 KB) at 0x610000.

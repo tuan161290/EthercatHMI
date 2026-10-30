@@ -49,13 +49,8 @@ static void refresh(void)
     lv_obj_set_style_bg_color(s_ui.state_disc, HMI_C(running ? HMI_SUCCESS_BG : 0xEFEFEF), 0);
     hmi_icon_set_color(s_ui.state_play, HMI_SUCCESS);
     hmi_icon_set_color(s_ui.state_stop, HMI_TEXT_2);
-    if (running) {
-        lv_obj_remove_flag(s_ui.state_play, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(s_ui.state_stop, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(s_ui.state_play, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(s_ui.state_stop, LV_OBJ_FLAG_HIDDEN);
-    }
+    lv_obj_set_hidden(s_ui.state_play, !running);
+    lv_obj_set_hidden(s_ui.state_stop, running);
     lv_label_set_text(s_ui.state_label, running ? "Running" : "Stopped");
     lv_label_set_text(s_ui.step_label, running ? DEMO("Step 4 of 12 \xC2\xB7 Pick part", NONE)
                                                : (auto_mode ? "Ready \xC2\xB7 press Start"
@@ -237,7 +232,7 @@ static void build_left(lv_obj_t *col)
 static lv_obj_t *segment(lv_obj_t *track, const char *text, lv_event_cb_t cb)
 {
     lv_obj_t *s = hmi_box(track, LV_FLEX_FLOW_ROW, 0);
-    lv_obj_add_flag(s, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(s, true);
     lv_obj_set_height(s, HMI_TOUCH_H);
     lv_obj_set_flex_grow(s, 1);
     lv_obj_set_style_radius(s, 4, 0);
@@ -291,7 +286,7 @@ static void build_right(lv_obj_t *col)
     lv_obj_t *alarm = hmi_card(col, 12, 14, 4);
     lv_obj_set_width(alarm, LV_PCT(100));
     lv_obj_set_flex_grow(alarm, 1);
-    lv_obj_add_flag(alarm, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(alarm, true);
     lv_obj_add_style(alarm, &hmi_st_pressed_dim, LV_STATE_PRESSED);
     lv_obj_add_event_cb(alarm, on_open_alarms, LV_EVENT_CLICKED, NULL);
 #if CONFIG_HMI_DEMO_DATA

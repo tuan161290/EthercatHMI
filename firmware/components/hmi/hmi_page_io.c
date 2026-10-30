@@ -111,11 +111,11 @@ static void ch_row_style(ch_t *c, bool tappable)
     if (tappable) {
         lv_obj_add_style(c->row, &hmi_st_control, 0);
         lv_obj_add_style(c->row, &hmi_st_pressed, LV_STATE_PRESSED);
-        lv_obj_add_flag(c->row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_clickable(c->row, true);
     } else {
         lv_obj_remove_style(c->row, &hmi_st_control, 0);
         lv_obj_remove_style(c->row, &hmi_st_pressed, LV_STATE_PRESSED);
-        lv_obj_remove_flag(c->row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_clickable(c->row, false);
         lv_obj_set_style_bg_color(c->row, lv_color_black(), 0);
         lv_obj_set_style_bg_opa(c->row, 8, 0); /* black at 3 % */
         lv_obj_set_style_radius(c->row, 4, 0);

@@ -191,7 +191,7 @@ static void list_row(int i, const char *ssid, bool secured, int rssi, bool in_ra
     lv_obj_t *row = hmi_box(s_nw.list, LV_FLEX_FLOW_ROW, 12);
     lv_obj_set_size(row, LV_PCT(100), ROW_H);
     lv_obj_set_style_pad_hor(row, 8, 0);
-    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(row, true);
     lv_obj_set_style_bg_color(row, lv_color_black(), LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(row, HMI_TINT_OPA, LV_STATE_PRESSED);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -302,7 +302,7 @@ static void wifi_card(lv_obj_t *body)
 
     lv_obj_t *top = hmi_box(card, LV_FLEX_FLOW_ROW, 10);
     lv_obj_set_size(top, LV_PCT(100), 40);
-    lv_obj_add_flag(top, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(top, true);
     lv_obj_set_flex_align(top, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_add_event_cb(top, wifi_toggle_cb, LV_EVENT_CLICKED, NULL);
     hmi_icon(top, HMI_ICON_WIFI, 20, HMI_TEXT);
@@ -406,7 +406,7 @@ static void time_card(lv_obj_t *body)
 
     lv_obj_t *top = hmi_box(card, LV_FLEX_FLOW_ROW, 10);
     lv_obj_set_size(top, LV_PCT(100), 40);
-    lv_obj_add_flag(top, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(top, true);
     lv_obj_set_flex_align(top, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_add_event_cb(top, ntp_toggle_cb, LV_EVENT_CLICKED, NULL);
     hmi_icon(top, HMI_ICON_CLOCK, 20, HMI_TEXT);

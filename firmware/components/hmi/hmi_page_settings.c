@@ -130,7 +130,7 @@ static lv_obj_t *crumb_create(lv_obj_t *root, sub_t sub)
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     lv_obj_t *back = hmi_box(row, LV_FLEX_FLOW_ROW, 0);
-    lv_obj_add_flag(back, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(back, true);
     lv_obj_set_height(back, HMI_TOUCH_H);
     lv_obj_set_style_pad_hor(back, 8, 0);
     lv_obj_set_style_radius(back, 4, 0);
@@ -157,7 +157,7 @@ static void tile_create(lv_obj_t *grid, sub_t sub)
 {
     const bool on = built(sub);
     lv_obj_t *t = hmi_box(grid, LV_FLEX_FLOW_COLUMN, 4);
-    lv_obj_add_flag(t, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(t, true);
     lv_obj_add_style(t, &hmi_st_card, 0);
     lv_obj_add_style(t, &hmi_st_pressed, LV_STATE_PRESSED);
     lv_obj_set_style_pad_all(t, 12, 0);
@@ -228,11 +228,7 @@ static void ch_show(ch_t ch, int v)
 
 static void unsaved_update(void)
 {
-    if (hmi_display_save_pending()) {
-        lv_obj_remove_flag(s_unsaved, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(s_unsaved, LV_OBJ_FLAG_HIDDEN);
-    }
+    lv_obj_set_hidden(s_unsaved, !hmi_display_save_pending());
 }
 
 static void slider_cb(lv_event_t *e)

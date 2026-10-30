@@ -92,7 +92,7 @@ lv_obj_t *hmi_segmented(lv_obj_t *parent, const char *const *labels, int n, int 
             lv_obj_set_width(row, LV_PCT(100));
         }
         lv_obj_t *b = hmi_box(row, LV_FLEX_FLOW_ROW, 0);
-        lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_clickable(b, true);
         lv_obj_set_height(b, h);
         lv_obj_set_flex_grow(b, 1);
         lv_obj_set_style_radius(b, 4, 0);
@@ -158,7 +158,7 @@ lv_obj_t *hmi_pill(lv_obj_t *parent, const char *text, bool selected, bool enabl
     lv_obj_set_style_border_opa(p, selected ? LV_OPA_COVER : LV_OPA_20, 0);
     lv_obj_set_flex_align(p, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     if (enabled && !selected) {
-        lv_obj_add_flag(p, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_clickable(p, true);
         lv_obj_add_style(p, &hmi_st_pressed, LV_STATE_PRESSED);
         hmi_elevation(p, HMI_ELEV_OPA);
     }
@@ -234,8 +234,8 @@ static lv_obj_t *modal_open(int32_t w, lv_obj_t **card)
     lv_obj_t *ov = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(ov);
     lv_obj_set_size(ov, LV_PCT(100), LV_PCT(100));
-    lv_obj_remove_flag(ov, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(ov, LV_OBJ_FLAG_CLICKABLE); /* nothing below takes a touch while it is open */
+    lv_obj_set_scrollable(ov, false);
+    lv_obj_set_clickable(ov, true); /* nothing below takes a touch while it is open */
     lv_obj_set_style_bg_color(ov, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(ov, LV_OPA_30, 0);
     *card = hmi_card(ov, 20, 24, 8);
@@ -595,8 +595,8 @@ void hmi_text_input(const char *title, const char *hint, const char *initial, bo
     t->ov = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(t->ov);
     lv_obj_set_size(t->ov, LV_PCT(100), LV_PCT(100));
-    lv_obj_remove_flag(t->ov, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(t->ov, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_scrollable(t->ov, false);
+    lv_obj_set_clickable(t->ov, true);
     lv_obj_set_style_bg_color(t->ov, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(t->ov, LV_OPA_30, 0);
     lv_obj_add_event_cb(t->ov, free_user_data_cb, LV_EVENT_DELETE, t);
@@ -681,11 +681,7 @@ void hmi_show(lv_obj_t *obj, bool show)
     if (obj == NULL) {
         return;
     }
-    if (show) {
-        lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
-    }
+    lv_obj_set_hidden(obj, !show);
 }
 
 /* ---- Touch: a press that slides off its control is cancelled ---- */
@@ -780,7 +776,7 @@ lv_obj_t *hmi_unsaved_tag(lv_obj_t *parent, const char *text)
 {
     lv_obj_t *t = hmi_tag(parent, true);
     hmi_tag_set(t, text, HMI_CAUTION_BG, HMI_CAUTION);
-    lv_obj_add_flag(t, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(t, true);
     return t;
 }
 
@@ -856,7 +852,7 @@ lv_obj_t *hmi_dropdown(lv_obj_t *parent, int32_t w, const char *options, int sel
     const lv_font_t *font = hmi_font(HMI_FS_BODY, HMI_REGULAR);
     lv_obj_t *dd = lv_dropdown_create(parent);
     lv_obj_remove_style_all(dd);
-    lv_obj_remove_flag(dd, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(dd, false);
     lv_obj_add_style(dd, &hmi_st_control, 0);
     lv_obj_add_style(dd, &hmi_st_pressed, LV_STATE_PRESSED);
     lv_obj_set_size(dd, w, HMI_TOUCH_H);

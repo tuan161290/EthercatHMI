@@ -1,4 +1,4 @@
-"""Build and run the HMI simulator: the firmware's components/hmi and LVGL 9.5, compiled for the PC
+"""Build and run the HMI simulator: the firmware's components/hmi and LVGL 9.6, compiled for the PC
 with MSVC (cl) from Visual Studio, rendering pages to PNG files (no board needed).
 
     python sim_build.py                       build only

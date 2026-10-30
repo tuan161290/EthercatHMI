@@ -208,7 +208,7 @@ static void list_fill(void)
     }
     for (int i = 0; i < s_pts.n_points; i++) {
         lv_obj_t *row = hmi_box(s_t.list, LV_FLEX_FLOW_ROW, 8);
-        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_clickable(row, true);
         lv_obj_set_size(row, LV_PCT(100), ROW_H);
         lv_obj_set_style_pad_hor(row, 12, 0);
         lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -216,7 +216,7 @@ static void list_fill(void)
         lv_obj_add_event_cb(row, row_clicked_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
 
         lv_obj_t *bar = hmi_box(row, -1, 0);
-        lv_obj_add_flag(bar, LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_set_ignore_layout(bar, true);
         lv_obj_set_size(bar, 3, 16);
         lv_obj_set_pos(bar, -12, (ROW_H - 16) / 2 - 1);
         lv_obj_set_style_radius(bar, 2, 0);

@@ -107,7 +107,7 @@ idf.py -B C:\esp\build\ehmi -p COM5 flash monitor     # thoát monitor: Ctrl+]
 ```
 - Cấu hình nằm ở `firmware/sdkconfig.defaults`; `idf.py -B C:\esp\build\ehmi menuconfig` để chỉnh
   (*SOEM EtherCAT master*, *EtherCAT HMI application*, *Board: Guition JC1060P470C_I_W_Y*, *HMI (LVGL)*).
-- Không commit `sdkconfig`, `build/`, `managed_components/`. **Có** commit `firmware/dependencies.lock`: nó ghim LVGL 9.5.0, esp_lvgl_port 2.8.0~1, esp_lcd_jd9165 2.0.2, esp_lcd_touch_gt911 1.2.1 (các bản đã build được với IDF 5.5.4).
+- Không commit `sdkconfig`, `build/`, `managed_components/`. **Có** commit `firmware/dependencies.lock`: nó ghim LVGL 9.6.0~1, esp_lvgl_port (2.9.0 với IDF 6, 2.8.0~1 với IDF 5.5.4), esp_lcd_jd9165 2.0.2, esp_lcd_touch_gt911 1.2.1.
 - Bảng phân vùng là `firmware/partitions.csv` (app 6 MB). `nvs` vẫn ở 0x9000, nên topology EtherCAT đã lưu không mất.
 - Sửa `sdkconfig.defaults` thì xoá `firmware/sdkconfig` để IDF tạo lại; giá trị đã có trong `sdkconfig` không bị defaults ghi đè.
 

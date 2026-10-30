@@ -827,7 +827,7 @@ static void field(lv_obj_t *row, int f, int32_t w)
     lv_obj_set_size(box, LV_PCT(100), FIELD_H);
     lv_obj_set_flex_align(box, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_hor(box, 10, 0);
-    lv_obj_add_flag(box, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(box, true);
     lv_obj_add_style(box, &hmi_st_pressed, LV_STATE_PRESSED);
     s_i.f_box[f] = box;
     s_i.f_val[f] = hmi_label(box, "", HMI_FS_BODY, HMI_REGULAR, HMI_TEXT);

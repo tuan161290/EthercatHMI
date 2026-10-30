@@ -888,7 +888,7 @@ static void group_rows(lv_obj_t *list, int g)
     for (int i = 0; i < N_ROWS && s_rows[g][i].name; i++) {
         const row_def_t *r = &s_rows[g][i];
         lv_obj_t *row = hmi_box(list, LV_FLEX_FLOW_ROW, 12);
-        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_clickable(row, true);
         lv_obj_set_size(row, LV_PCT(100), ROW_H);
         lv_obj_set_style_radius(row, 4, 0);
         lv_obj_set_style_bg_color(row, HMI_C(HMI_WHITE), 0);
