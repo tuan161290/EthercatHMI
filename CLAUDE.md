@@ -4,6 +4,7 @@
 Firmware for an **HMI + EtherCAT master** on a Guition **JC1060P470C_I_W_Y**: a 7" 1024x600 MIPI-DSI display with an ESP32-P4 and an ESP32-C6 inside module U3 "JC-ESP32P4-M3". The EtherCAT master (SOEM) runs over the P4's internal EMAC and the on-board RJ45. The HMI uses LVGL 9.5 (shell and Main page written; boots on the board without errors since 2026-10-10, but nobody has yet checked the picture and touch on the screen).
 
 Target machine (planning stage; hardware not available yet): about **8 Leadshine EtherCAT axes (CiA402)** plus **Leadshine R1EC remote IO**.
+- **Motion is Profile Position only** (user, 2026-10-31), plus PV for continuous jog and HM for homing. CSP is not needed, so the cycle may run late or jitter. The hard limits are the drives' SM watchdog (about 100 ms without frames) and the 3-bad-WKC rule. The CSP path code (`ecat_path_*`, Manual › Interpolation) is a test only.
 - ESI files are in `vendor/ESI/` (Leadshine L5N, L3N, CL3B-EC, R1EC; Fastech). The folder is **read-only**.
 - `PGM/` is the user's earlier C# WPF machine program (6× L5N-400S + 2× CL3B-EC507 + R1EC).
   - **The target machine is NOT the PGM machine.** Use PGM only as a reference for **how to connect the bus and configure servos and remote IO**, not for machine logic or UI.
@@ -202,7 +203,7 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
 - **Safety logic fails safe:** losing the IO slave, a wrong WKC, or R1EC Device Status ≠ 0 means Emergency, never "inputs read as OK".
 - **On core 1 while in OP:** no flash/NVS writes, no printf and no malloc in the cycle path. IOmap and `ecx_contextt` stay in internal RAM.
 - **Flash in OP:** never erase, and no NVS writes (NVS erases a sector whenever a page fills). Core-0 code that must save in OP goes through `machine_store` (paced page programs).
-- Cycle-time targets: 1 ms first, then 500 µs. Not measured on hardware yet.
+- Cycle time: 1 ms. The 500 µs target was dropped because the machine needs PP only (2026-10-31). Not measured on hardware yet.
 
 ## Conventions
 - Cite a source (file + page or line) for every hardware fact you add to docs or comments. Mark anything unverified as such.
