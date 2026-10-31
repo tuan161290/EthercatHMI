@@ -12,7 +12,13 @@
  * The plot shows the planned path and the actual positions polled during the run. The contour
  * error (distance of the actual position from the path) and the lag are measured every cycle by
  * the cyclic task.
+ *
+ * Built only with CONFIG_ECAT_PATH. The guard is in the file, not in CMakeLists.txt, because the
+ * HMI simulator compiles every hmi_*.c file.
  */
+
+#include "sdkconfig.h"
+#if CONFIG_ECAT_PATH
 
 #include <math.h>
 #include <stdio.h>
@@ -967,3 +973,5 @@ void hmi_interp_create(lv_obj_t *root)
     build();
     s_i.poll = lv_timer_create(poll_cb, POLL_MS, NULL);
 }
+
+#endif /* CONFIG_ECAT_PATH */

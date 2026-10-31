@@ -19,7 +19,11 @@ CONFIG_SPIRAM_XIP_FROM_PSRAM=y
 # Statics marked EXT_RAM_BSS_ATTR (HMI page state, snapshots, machine data) live in PSRAM, so
 # internal RAM keeps one block for the 96 KB LVGL draw buffer (DMA) and the EtherCAT data.
 CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
-CONFIG_CACHE_L2_CACHE_256KB=y
+# The L2 cache is carved out of the 768 KB L2MEM: 128 KB (the IDF default) instead of 256 KB leaves
+# 128 KB more internal RAM. Code runs from PSRAM through this cache, so a smaller one costs some
+# speed; accepted because the machine needs Profile Position only (2026-10-31). Console 'bench'
+# measures the HMI side.
+CONFIG_CACHE_L2_CACHE_128KB=y
 CONFIG_CACHE_L2_CACHE_LINE_128B=y
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 
@@ -45,8 +49,8 @@ CONFIG_ETH_DMA_RX_BUFFER_NUM=20
 CONFIG_ETH_DMA_TX_BUFFER_NUM=10
 CONFIG_ETH_USE_SPI_ETHERNET=n
 
-# SOEM sized for this machine (ecx_contextt lives in internal RAM; was 99 KB with the defaults
-# 32/16/16, 2026-10-11):
+# SOEM sized for this machine (ecx_contextt was 99 KB with the defaults 32/16/16, now 54 KB,
+# 2026-10-11; in PSRAM since 2026-10-31, main.c):
 # - 20 slaves: slavelist[0] is the master's, so 19 on the bus (bench 10, target about 10).
 #   More slaves on the bus: ecx_config_init() refuses (EC_SLAVECOUNTEXCEEDED) and the bus stays down.
 # - 8 frame buffers: about 3 frames are ever in flight (one LRW per cycle, the IOmap fits one

@@ -30,6 +30,7 @@
 #include "ecat_io.h"
 #include "ecat_sdo_service.h"
 #include "ecat_topology.h"
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -69,8 +70,13 @@ typedef struct {
     uint32_t wake_late_max_us;  /* worst wake-up delay after the deadline */
 } cycle_stats_t;
 
-static ecx_contextt s_ctx;
-static uint8_t s_iomap[ECAT_IOMAP_SIZE] __attribute__((aligned(4)));
+/* In PSRAM (54 + 4 KB of internal RAM freed, 2026-10-31): the machine runs Profile Position only,
+ * so a cycle may be late by the cache misses this adds. Both cores see the same data: the P4 has
+ * an ICache per core but one L1 DCache (IDF hal/esp32p4/include/hal/cache_ll.h). No DMA reads
+ * these buffers: the EMAC driver copies each frame into its own descriptors' buffers (IDF
+ * esp_eth/src/mac/esp_eth_mac_esp_dma.c, emac_esp_dma_transmit_frame). */
+static EXT_RAM_BSS_ATTR ecx_contextt s_ctx;
+static EXT_RAM_BSS_ATTR uint8_t s_iomap[ECAT_IOMAP_SIZE] __attribute__((aligned(4)));
 static volatile bool s_in_op;
 static volatile bool s_holding;   /* in hold_loop(): bus held in PRE-OP, waiting for commands */
 static volatile bool s_need_check;

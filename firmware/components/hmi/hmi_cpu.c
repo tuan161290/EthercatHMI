@@ -11,6 +11,9 @@
  *
  * The sampler is an esp_timer callback (esp_timer task, core 0), so it keeps running while the
  * screen is off and the LVGL timers are paused.
+ *
+ * Also the longest LVGL refresh (layout and drawing, LV_EVENT_REFR_START to REFR_READY) for the
+ * console 'bench', which compares builds by how long the pages take to open.
  */
 
 #include <stdatomic.h>
@@ -30,6 +33,8 @@ static configRUN_TIME_COUNTER_TYPE s_last_idle[2];
 static atomic_uint s_frames;
 /* load core 0 | load core 1 << 8 | fps << 16; 0 until the first sample */
 static atomic_uint s_result;
+static int64_t s_refr_start;
+static atomic_uint s_refr_max_us;
 
 static unsigned core_load(int core, uint32_t dt_us)
 {
@@ -67,9 +72,25 @@ static void frame_cb(lv_event_t *e)
     atomic_fetch_add_explicit(&s_frames, 1, memory_order_relaxed);
 }
 
+/* LVGL task, at the start and the end of every refresh. */
+static void refr_cb(lv_event_t *e)
+{
+    const int64_t now = esp_timer_get_time();
+    if (lv_event_get_code(e) == LV_EVENT_REFR_START) {
+        s_refr_start = now;
+        return;
+    }
+    const unsigned us = (unsigned)(now - s_refr_start);
+    if (us > atomic_load_explicit(&s_refr_max_us, memory_order_relaxed)) {
+        atomic_store_explicit(&s_refr_max_us, us, memory_order_relaxed);
+    }
+}
+
 void hmi_cpu_start(lv_display_t *disp)
 {
     lv_display_add_event_cb(disp, frame_cb, LV_EVENT_RENDER_READY, NULL);
+    lv_display_add_event_cb(disp, refr_cb, LV_EVENT_REFR_START, NULL);
+    lv_display_add_event_cb(disp, refr_cb, LV_EVENT_REFR_READY, NULL);
     s_last_us = (uint32_t)esp_timer_get_time();
     for (int c = 0; c < 2; c++) {
         s_last_idle[c] = ulTaskGetIdleRunTimeCounterForCore(c);
@@ -90,4 +111,9 @@ bool hmi_cpu_get(hmi_cpu_t *out)
     out->load[1] = r >> 8 & 0xFF;
     out->fps = r >> 16 & 0x7FFF;
     return true;
+}
+
+uint32_t hmi_cpu_refr_max_us(void)
+{
+    return atomic_exchange_explicit(&s_refr_max_us, 0, memory_order_relaxed);
 }

@@ -106,8 +106,9 @@ hmi_screen_t hmi_screen_get(void);
 void hmi_screen_wake(void);
 
 /**
- * Show a page by name, as if it was tapped: main, manual (= jog), teach, interp, io, alarms, settings,
- * time, servo, ethercat, system, network, info. For bench tests from the console. Any task on core 0.
+ * Show a page by name, as if it was tapped: main, manual (= jog), teach, interp (CONFIG_ECAT_PATH),
+ * io, alarms, settings, time, servo, ethercat, system, network, info. For bench tests from the
+ * console. Any task on core 0.
  * @return false for an unknown name or before hmi_start()
  */
 bool hmi_open_page(const char *name);
@@ -120,6 +121,10 @@ typedef struct {
 
 /** @return false until the first second after hmi_start() has been measured. Any task. */
 bool hmi_cpu_get(hmi_cpu_t *out);
+
+/** Longest LVGL refresh (layout and drawing) since the last call, us; the call starts a new
+ *  window. Any task. */
+uint32_t hmi_cpu_refr_max_us(void);
 
 /** Print the last touches (point, down/up, text of the widget hit) on the console. */
 void hmi_touchlog_print(void);

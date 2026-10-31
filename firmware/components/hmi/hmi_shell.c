@@ -407,7 +407,9 @@ static const struct {
     {"manual", HMI_PAGE_MANUAL, HMI_MANUAL_JOG},
     {"jog", HMI_PAGE_MANUAL, HMI_MANUAL_JOG},
     {"teach", HMI_PAGE_MANUAL, HMI_MANUAL_TEACH},
+#if CONFIG_ECAT_PATH
     {"interp", HMI_PAGE_MANUAL, HMI_MANUAL_INTERP},
+#endif
     {"io", HMI_PAGE_IO, -1},
     {"alarms", HMI_PAGE_ALARMS, -1},
     {"settings", HMI_PAGE_SETTINGS, -1},
