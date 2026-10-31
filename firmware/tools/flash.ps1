@@ -8,6 +8,7 @@
         (v1.x and v3.x images are not interchangeable, docs\SETUP.md section 4);
       - makes a full 16 MB backup of the board's flash once per board (keyed by MAC),
         unless one already exists (docs\SETUP.md section 3).
+    After a flash it sets the board's clock and RTC to the PC's time (tools\set_clock.py).
     Messages are in Vietnamese. This file must stay UTF-8 *with BOM*, or Windows PowerShell 5.1
     misreads the Vietnamese strings.
 
@@ -22,7 +23,7 @@
 #>
 param(
     [string]$Port = "",
-    [ValidateSet("", "build", "flash", "flash-only", "monitor", "info", "backup")]
+    [ValidateSet("", "build", "flash", "flash-only", "monitor", "info", "backup", "clock")]
     [string]$Action = ""
 )
 
@@ -262,6 +263,21 @@ function Invoke-Flash {
     $script:Ok = $true
 }
 
+# Sends the PC's time to the firmware console ('clock'), which also writes the RTC. The script
+# waits for the board to come back after a flash.
+function Invoke-SetClock {
+    $script:Ok = $false
+    $p = Get-Port
+    if ($p -eq "") { return }
+    Write-Step "Đặt đồng hồ của board (và RTC) theo giờ máy tính"
+    & $script:Py (Join-Path $PSScriptRoot "set_clock.py") $p
+    if ($LASTEXITCODE -ne 0) {
+        Write-Note "Chưa đặt được giờ. Có thể đặt lại bằng mục 7, hoặc trên board ở Settings > Time."
+        return
+    }
+    $script:Ok = $true
+}
+
 function Invoke-Monitor {
     $script:Ok = $false
     $p = Get-Port
@@ -308,15 +324,16 @@ function Invoke-Action([string]$Name) {
         "flash" {
             Invoke-Build
             if ($script:Ok) { Invoke-Flash }
-            if ($script:Ok) { Invoke-Monitor }
+            if ($script:Ok) { Invoke-SetClock; Invoke-Monitor } # a clock failure only warns
         }
         "flash-only" {
             Invoke-Flash
-            if ($script:Ok) { Invoke-Monitor }
+            if ($script:Ok) { Invoke-SetClock; Invoke-Monitor }
         }
         "monitor" { Invoke-Monitor }
         "info" { Invoke-Info }
         "backup" { Invoke-ManualBackup }
+        "clock" { Invoke-SetClock }
     }
 }
 
@@ -335,6 +352,7 @@ function Show-Menu {
     Write-Host "  4  Chỉ build"
     Write-Host "  5  Thông tin chip (revision, flash, MAC, bản sao lưu)"
     Write-Host "  6  Sao lưu toàn bộ flash 16 MB"
+    Write-Host "  7  Đặt giờ board (và RTC) theo giờ máy tính"
     Write-Host "  0  Thoát"
 }
 
@@ -349,7 +367,7 @@ if ($Action -ne "") {
     exit 1
 }
 
-$menu = @{ "1" = "flash"; "2" = "flash-only"; "3" = "monitor"; "4" = "build"; "5" = "info"; "6" = "backup" }
+$menu = @{ "1" = "flash"; "2" = "flash-only"; "3" = "monitor"; "4" = "build"; "5" = "info"; "6" = "backup"; "7" = "clock" }
 while ($true) {
     Show-Menu
     $choice = Read-Answer "Chọn"

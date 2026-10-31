@@ -125,13 +125,17 @@ Script tìm `Microsoft.v5.5.4.PowerShell_profile.ps1` trong `C:\Espressif\tools`
 | 4 | Chỉ build |
 | 5 | Thông tin chip: revision, kích thước flash, MAC, đã có bản sao lưu chưa |
 | 6 | Sao lưu toàn bộ 16 MB flash |
+| 7 | Đặt giờ board (và RTC) theo giờ máy tính |
 
 - **Tìm cổng:** script tự tìm cổng USB-Serial-JTAG của Espressif (VID 303A, PID 1001, là cổng USB2 "Full Speed"). Không thấy thì nó liệt kê các cổng COM và hỏi.
 - **Trước khi ghi, script luôn:**
   1. Đọc chip revision bằng esptool. Nếu revision không khớp với bản build (v1.x hay v3.x, xem mục 4) thì dừng, không ghi gì.
   2. Kiểm tra bản sao lưu gốc của board tại `<ổ>:\esp\backup\<MAC>\factory_full_16MB.bin`. Nếu chưa có, script hỏi: sao lưu ngay (mặc định), bỏ qua, hoặc huỷ. Mỗi board có thư mục riêng theo MAC. Bên cạnh file `.bin` có file `.txt` ghi thời gian, SHA-256 và thông tin chip.
 - **Nạp** bằng `esptool write_flash @flash_args` trong thư mục build, đúng lệnh mà `idf.py` in ra sau khi build.
-- **Tham số dòng lệnh:** `powershell -File firmware\tools\flash.ps1 -Port COM7 -Action build|flash|flash-only|monitor|info|backup` chạy một việc rồi thoát (exit 0 là thành công).
+- **Đặt giờ sau khi nạp:** mục 1 và 2 chờ board khởi động lại (tối đa 30 s), rồi gửi giờ của máy tính xuống console bằng lệnh `clock`. Firmware ghi luôn vào RTC. Phần này do `firmware\tools\set_clock.py COMx` làm, chạy riêng cũng được (mục 7), board không bị reset.
+  - Script đọc múi giờ của board (Settings › Time) từ lệnh `clock`, rồi đổi giờ UTC của máy tính sang múi giờ đó. Máy tính đặt múi giờ nào cũng được.
+  - Đặt giờ không được thì script chỉ cảnh báo và in câu trả lời của board, rồi vẫn mở monitor.
+- **Tham số dòng lệnh:** `powershell -File firmware\tools\flash.ps1 -Port COM7 -Action build|flash|flash-only|monitor|info|backup|clock` chạy một việc rồi thoát (exit 0 là thành công).
 - `flash.ps1` phải giữ mã hoá **UTF-8 có BOM**. Thiếu BOM thì Windows PowerShell 5.1 đọc sai chữ tiếng Việt.
 
 ## 3. Kết nối board, tìm COM port, đọc chip revision, sao lưu flash
