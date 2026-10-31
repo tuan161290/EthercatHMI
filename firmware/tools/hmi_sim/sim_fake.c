@@ -146,7 +146,7 @@ lv_result_t lv_mem_test_core(void)
 
 const esp_app_desc_t *esp_app_get_description(void)
 {
-    static const esp_app_desc_t d = {"1", "ethercat_hmi", __TIME__, __DATE__, "v5.5.4"};
+    static const esp_app_desc_t d = {"1", "ehmi_general", __TIME__, __DATE__, "v5.5.4"};
     return &d;
 }
 

@@ -56,11 +56,11 @@ ownCloud làm mất file: file ảo không đọc được khi client tắt, và
 - **Chỉ push từ một máy tại một thời điểm.** Trước khi chuyển sang máy khác, đợi ownCloud báo đồng bộ xong. Hai máy cùng push vào repo bare đang đồng bộ có thể tạo file xung đột trong `refs/`.
 - Máy khác lấy code bằng `git clone D:/ownCloud/Tuan/Backup/EthercatHMI.git <thư mục ngoài ownCloud>` (đổi ổ theo máy), không làm việc trực tiếp trong ownCloud nữa.
 - Không đưa vào git, chỉ để trong ownCloud: file zip gói của hãng (222 MB), `vendor/JC1060/`, `PGM/`.
-- Thư mục build `D:\esp\build\ehmi` được tạo lại cho đường dẫn mới. Khi localhost hỏng (xem trên), cấu hình bằng:
+- Thư mục build `D:\esp\build\ehmi` được tạo lại cho đường dẫn mới. Từ 2026-10-31 mỗi app có thư mục build riêng `D:\esp\build\ehmi_<app>` (mục 2). Khi localhost hỏng (xem trên), cấu hình bằng:
   ```powershell
   . D:\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1
-  cd D:\esp\build\ehmi
-  cmake -G Ninja -DPYTHON_DEPS_CHECKED=1 -DPYTHON=D:\Espressif\tools\python\v5.5.4\venv\Scripts\python.exe -DESP_PLATFORM=1 -DCCACHE_ENABLE=0 D:\Projects\EthercatHMI\firmware
+  mkdir D:\esp\build\ehmi_general; cd D:\esp\build\ehmi_general
+  cmake -G Ninja -DPYTHON_DEPS_CHECKED=1 -DPYTHON=D:\Espressif\tools\python\v5.5.4\venv\Scripts\python.exe -DESP_PLATFORM=1 -DCCACHE_ENABLE=0 D:\Projects\EthercatHMI\firmware\apps\general
   ninja
   ```
 
@@ -91,41 +91,52 @@ Chọn bản IDF mặc định (dùng cho VS Code extension): `eim list`, `eim s
 **Khuyến nghị cho ownCloud:** trong ownCloud client → Settings → Edit Ignored Files, thêm `build`, `managed_components`,
 `sdkconfig.old`, `.cache`. Firmware đã build ra ngoài, nhưng component manager vẫn tải `managed_components/` vào thư mục dự án khi có phụ thuộc từ registry.
 
-**`firmware/managed_components` là junction** trỏ sang `C:\esp\managed\ehmi` (tạo ngày 2026-10-03), nên LVGL và các driver (vài nghìn file) không nằm trong vùng ownCloud. Component manager luôn tải vào `<project>/managed_components` và không có tuỳ chọn đổi chỗ. Trên máy khác, tạo lại trước lần build đầu:
+**`firmware/managed_components` là junction** trỏ sang `C:\esp\managed\ehmi` (tạo ngày 2026-10-03), nên LVGL và các driver (vài nghìn file) không nằm trong vùng ownCloud. Component manager luôn tải vào `<project>/managed_components` và không có tuỳ chọn đổi chỗ. Từ 2026-10-31 project là từng app, nên thư mục này là `firmware\apps\<app>\managed_components`. Nếu dự án vẫn nằm trong thư mục đồng bộ, tạo junction trước lần build đầu:
 ```powershell
-New-Item -ItemType Directory -Force C:\esp\managed\ehmi
-New-Item -ItemType Junction -Path C:\Users\Tuan\ownCloud\Tuan\EthercatHMI\firmware\managed_components -Target C:\esp\managed\ehmi
+New-Item -ItemType Directory -Force C:\esp\managed\ehmi_general
+New-Item -ItemType Junction -Path C:\Users\Tuan\ownCloud\Tuan\EthercatHMI\firmware\apps\general\managed_components -Target C:\esp\managed\ehmi_general
 ```
 
-## 2. Build firmware dự án (`firmware/`)
+## 2. Build firmware dự án (`firmware/apps/<app>`)
+
+Từ 2026-10-31 `firmware/` chứa nhiều app, mỗi app là một project ESP-IDF riêng trong `firmware/apps/<app>/`. Phần dùng chung nằm ngoài:
+- `firmware/components/`: mọi component, kể cả `app_core` (khởi động EtherCAT, HMI, alarm, Wi-Fi, console; trước đây là `main/`);
+- `firmware/sdkconfig.defaults`: cấu hình chung;
+- `firmware/partitions.csv`: bảng phân vùng chung, nên nạp app khác thì NVS và dữ liệu máy (`mstore`) vẫn giữ nguyên.
+
+App gốc là **General App** (`firmware/apps/general`): chỉ gọi `app_core_start()`, chưa có trình tự máy.
 
 ```powershell
 . C:\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1
-cd C:\Users\Tuan\ownCloud\Tuan\EthercatHMI\firmware
-idf.py -B C:\esp\build\ehmi build
-idf.py -B C:\esp\build\ehmi -p COM5 flash monitor     # thoát monitor: Ctrl+]
+cd C:\Users\Tuan\ownCloud\Tuan\EthercatHMI\firmware\apps\general
+idf.py -B C:\esp\build\ehmi_general build
+idf.py -B C:\esp\build\ehmi_general -p COM5 flash monitor     # thoát monitor: Ctrl+]
 ```
-- Cấu hình nằm ở `firmware/sdkconfig.defaults`; `idf.py -B C:\esp\build\ehmi menuconfig` để chỉnh
-  (*SOEM EtherCAT master*, *EtherCAT HMI application*, *Board: Guition JC1060P470C_I_W_Y*, *HMI (LVGL)*).
-- Không commit `sdkconfig`, `build/`, `managed_components/`. **Có** commit `firmware/dependencies.lock`: nó ghim LVGL 9.6.0~1, esp_lvgl_port (2.9.0 với IDF 6, 2.8.0~1 với IDF 5.5.4), esp_lcd_jd9165 2.0.2, esp_lcd_touch_gt911 1.2.1.
+- Cấu hình: `firmware/sdkconfig.defaults` cho mọi app, rồi `firmware/apps/<app>/sdkconfig.defaults` cho riêng app đó (ghi đè cái chung). `idf.py -B C:\esp\build\ehmi_general menuconfig` để chỉnh
+  (*SOEM EtherCAT master*, *EtherCAT HMI application*, *Board: Guition JC1060P470C_I_W_Y*, *HMI (LVGL)*, *EtherCAT axes*).
+- File `sdkconfig` nằm trong thư mục build (`C:\esp\build\ehmi_general\sdkconfig`), không nằm trong thư mục app. Sửa file defaults thì xoá file `sdkconfig` đó để IDF tạo lại; giá trị đã có trong `sdkconfig` không bị defaults ghi đè.
+- Không commit `sdkconfig`, `build/`, `managed_components/`. **Có** commit `dependencies.lock` của từng app: nó ghim LVGL 9.6.0~1, esp_lvgl_port (2.9.0 với IDF 6, 2.8.0~1 với IDF 5.5.4), esp_lcd_jd9165 2.0.2, esp_lcd_touch_gt911 1.2.1.
 - Bảng phân vùng là `firmware/partitions.csv` (app 6 MB). `nvs` vẫn ở 0x9000, nên topology EtherCAT đã lưu không mất.
-- Sửa `sdkconfig.defaults` thì xoá `firmware/sdkconfig` để IDF tạo lại; giá trị đã có trong `sdkconfig` không bị defaults ghi đè.
+- **Nội suy 2 trục (CSP)** mặc định tắt từ 2026-10-31, vì máy chỉ cần Profile Position. Muốn bật lại, thêm `CONFIG_ECAT_PATH=y` vào `sdkconfig.defaults` của app rồi xoá `sdkconfig` trong thư mục build. Khi đó tab Manual › Interpolation và lệnh `path` có lại (mục 7e).
 
 ### 2b. Nạp bằng `firmware\flash.bat` (cách nhanh)
 
 Nhấp đúp `firmware\flash.bat`, hoặc chạy `flash.bat COM7` trong terminal để chỉ định cổng. Phần xử lý nằm trong `firmware\tools\flash.ps1`. Không cần mở terminal ESP-IDF trước: script tự nạp môi trường v5.5.4.
 
-Script tìm `Microsoft.v5.5.4.PowerShell_profile.ps1` trong `C:\Espressif\tools`, nếu không có thì tìm trong `D:\Espressif\tools`. Thư mục build và thư mục sao lưu nằm cùng ổ với ESP-IDF: `<ổ>:\esp\build\ehmi` và `<ổ>:\esp\backup`. Các đường dẫn `C:\esp\...` trong tài liệu này ứng với máy cài trên ổ C; máy cài trên ổ D thì đổi thành `D:\...`.
+Script tìm `Microsoft.v5.5.4.PowerShell_profile.ps1` trong `C:\Espressif\tools`, nếu không có thì tìm trong `D:\Espressif\tools`. Thư mục build và thư mục sao lưu nằm cùng ổ với ESP-IDF: `<ổ>:\esp\build\ehmi_<app>` và `<ổ>:\esp\backup`. Các đường dẫn `C:\esp\...` trong tài liệu này ứng với máy cài trên ổ C; máy cài trên ổ D thì đổi thành `D:\...`.
+
+Script làm việc với một app trong `firmware\apps`. Nếu chỉ có một app (hiện là `general`), script tự chọn nó. Nếu có nhiều app, script hỏi lúc mở, và dòng đầu menu ghi app đang chọn.
 
 | Menu | Việc làm |
 |---|---|
 | 1 | Build → nạp → monitor |
-| 2 | Nạp bản đã build sẵn trong `C:\esp\build\ehmi` (không build lại) → monitor |
+| 2 | Nạp bản đã build sẵn trong `C:\esp\build\ehmi_<app>` (không build lại) → monitor |
 | 3 | Chỉ monitor (thoát bằng `Ctrl+]`, gõ lệnh ở dấu nhắc `ecat>`) |
 | 4 | Chỉ build |
 | 5 | Thông tin chip: revision, kích thước flash, MAC, đã có bản sao lưu chưa |
 | 6 | Sao lưu toàn bộ 16 MB flash |
 | 7 | Đặt giờ board (và RTC) theo giờ máy tính |
+| 8 | Đổi app (chỉ hiện khi có từ hai app trở lên) |
 
 - **Tìm cổng:** script tự tìm cổng USB-Serial-JTAG của Espressif (VID 303A, PID 1001, là cổng USB2 "Full Speed"). Không thấy thì nó liệt kê các cổng COM và hỏi.
 - **Trước khi ghi, script luôn:**
@@ -135,8 +146,18 @@ Script tìm `Microsoft.v5.5.4.PowerShell_profile.ps1` trong `C:\Espressif\tools`
 - **Đặt giờ sau khi nạp:** mục 1 và 2 chờ board khởi động lại (tối đa 30 s), rồi gửi giờ của máy tính xuống console bằng lệnh `clock`. Firmware ghi luôn vào RTC. Phần này do `firmware\tools\set_clock.py COMx` làm, chạy riêng cũng được (mục 7), board không bị reset.
   - Script đọc múi giờ của board (Settings › Time) từ lệnh `clock`, rồi đổi giờ UTC của máy tính sang múi giờ đó. Máy tính đặt múi giờ nào cũng được.
   - Đặt giờ không được thì script chỉ cảnh báo và in câu trả lời của board, rồi vẫn mở monitor.
-- **Tham số dòng lệnh:** `powershell -File firmware\tools\flash.ps1 -Port COM7 -Action build|flash|flash-only|monitor|info|backup|clock` chạy một việc rồi thoát (exit 0 là thành công).
+- **Tham số dòng lệnh:** `powershell -File firmware\tools\flash.ps1 -Port COM7 -Action build|flash|flash-only|monitor|info|backup|clock [-App general]` chạy một việc rồi thoát (exit 0 là thành công).
 - `flash.ps1` phải giữ mã hoá **UTF-8 có BOM**. Thiếu BOM thì Windows PowerShell 5.1 đọc sai chữ tiếng Việt.
+
+### 2c. App mới cho một máy (dựa trên General App)
+
+1. Chép thư mục `firmware\apps\general` thành `firmware\apps\<tên>`. Tên viết thường, không dấu, không khoảng trắng, ví dụ `press2`. Không chép `managed_components` (component manager tự tải lại theo `dependencies.lock`).
+2. Trong `firmware\apps\<tên>\CMakeLists.txt`, đổi `project(ehmi_general)` thành `project(ehmi_<tên>)`.
+3. Ghi cấu hình riêng của máy vào `firmware\apps\<tên>\sdkconfig.defaults`, ví dụ tên máy trên thanh tiêu đề (`CONFIG_HMI_MACHINE_NAME`), tắt dữ liệu demo (`CONFIG_HMI_DEMO_DATA=n`), hoặc bật nội suy (`CONFIG_ECAT_PATH=y`).
+4. Viết trình tự máy trong `firmware\apps\<tên>\main\`, chạy sau `app_core_start()`. Code dùng chung cho nhiều máy thì đưa vào `firmware\components\`, không chép sang từng app.
+5. `flash.bat` thấy app mới và hỏi chọn app. Build nằm ở `<ổ>:\esp\build\ehmi_<tên>`.
+
+Sửa lỗi trong phần chung (`components`, `app_core`, `sdkconfig.defaults` chung) thì mọi app đều nhận được ở lần build sau. Hiện `app_core` chưa có chỗ móc riêng cho trình tự máy (gọi trong chu kỳ, trang HMI riêng); những chỗ đó sẽ thêm khi viết app máy đầu tiên.
 
 ## 3. Kết nối board, tìm COM port, đọc chip revision, sao lưu flash
 
@@ -221,7 +242,7 @@ idf.py -p COM5 flash monitor
 
 ## 7. Smoke test #3 — EtherCAT master (`firmware/`)
 
-Console (log và lệnh) chạy trên cổng **USB2 "Full Speed"**, chính là cổng dùng để nạp. Gõ lệnh ngay trong `idf.py -B C:\esp\build\ehmi -p COMx monitor`, dấu nhắc là `ecat>`.
+Console (log và lệnh) chạy trên cổng **USB2 "Full Speed"**, chính là cổng dùng để nạp. Gõ lệnh ngay trong `idf.py -B C:\esp\build\ehmi_general -p COMx monitor` (chạy trong `firmware\apps\general`) hoặc mục 3 của `flash.bat`, dấu nhắc là `ecat>`.
 
 1. Build và nạp theo mục 2.
 2. **Trước khi cắm phần cứng:** gõ `selftest`. Lệnh kiểm tra logic so sánh topology và logic điều khiển trục (với drive mô phỏng) mà không cần bus; mong đợi `selftest PASS (... checks)` và `axis self-test: all checks passed`.
@@ -331,7 +352,7 @@ Cùng firmware với mục 7. HMI khởi động cùng EtherCAT, không cần c�
 - Gia tốc và giảm tốc lấy ở Settings › Servo, mặc định 1000 rpm/s (300 rpm trong 0,3 s).
 
 **Các bước**
-1. `selftest`. Mong đợi `selftest PASS (23 checks)` (board 2026-10-12) và `axis self-test: all checks passed` (36 kiểm tra với drive mô phỏng, xem 7e). Lệnh không cần bus.
+1. `selftest`. Mong đợi `selftest PASS (23 checks)` (board 2026-10-12) và `axis self-test: all checks passed` (22 kiểm tra với một drive mô phỏng; thêm 14 cho đường 2 trục khi bật `CONFIG_ECAT_PATH`, xem 7e). Lệnh không cần bus.
 2. Cắm drive vào board theo thứ tự trục (mục 7 bước 3). Không cần đặt alias.
 3. Trên màn hình, mở **Settings › EtherCAT**. Lần đầu, bảng hiện "Scan result" cùng trạng thái của từng slave.
    - Bấm **Accept** → xem danh sách thay đổi → **Save topology**. Có thể gõ `accept` trong console thay cho bước này.
@@ -447,6 +468,8 @@ Phần cần drive và R1EC thật thì **chưa thử**.
    - Đồng bộ NTP qua Wi-Fi chưa có (ESP32-C6 chưa được dùng).
 
 ## 7e. Smoke test #7 — Nội suy 2 trục (CSP, code 2026-10-12, chưa chạy với drive thật)
+
+**Tắt mặc định từ 2026-10-31** (máy chỉ cần Profile Position). Muốn thử phần này, bật `CONFIG_ECAT_PATH=y` cho app (mục 2) rồi build lại. Khi tắt, Manual không có tab Interpolation, console không có lệnh `path`, và code CSP không nằm trong vòng chu kỳ.
 
 Trang **Manual › Interpolation** chạy một đường thẳng hoặc một cung tròn trên hai trục, rồi đo xem hai trục có bám đường không.
 - Hai drive chạy ở **CSP** (0x6060 = 8). Mỗi chu kỳ 1 ms, task `ecat` tính vị trí đích của cả hai trục từ cùng một biên dạng tốc độ (hình thang) dọc theo đường, nên đây là nội suy thật. Cách PP chia tỉ lệ tốc độ của PGM không phải nội suy.

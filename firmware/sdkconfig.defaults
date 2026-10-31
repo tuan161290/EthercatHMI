@@ -1,4 +1,5 @@
 # ESP-IDF v5.5.4, Guition JC1060P470C_I_W_Y (ESP32-P4 + ESP32-C6)
+# Shared by every app in apps/; each app adds its own apps/<app>/sdkconfig.defaults, which wins.
 CONFIG_IDF_TARGET="esp32p4"
 
 # Chip: all vendor firmware targets P4 silicon v1.x (vendor sdkconfig).
@@ -10,7 +11,9 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+# Relative to the app folder (apps/<app>): one partition table for every app, so the machine store
+# and NVS stay where they are when another app is flashed.
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../../partitions.csv"
 CONFIG_IDF_EXPERIMENTAL_FEATURES=y
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_SPEED_200M=y

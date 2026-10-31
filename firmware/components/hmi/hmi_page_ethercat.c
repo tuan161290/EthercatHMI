@@ -458,7 +458,7 @@ static void update_all(void)
     update_panel();
 }
 
-/* Cycle timing rows, refreshed on every poll: main.c publishes them once a second. */
+/* Cycle timing rows, refreshed on every poll: app_core.c publishes them once a second. */
 static void timing_update(void)
 {
     hmi_bus_status_t st = {0};

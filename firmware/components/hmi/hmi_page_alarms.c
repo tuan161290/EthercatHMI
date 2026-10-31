@@ -2,9 +2,9 @@
  * Alarms (mockup Alarm.dc.html): the current alarm list or the history on the left, the details
  * of the selected alarm (cause, remedy) on the right.
  *
- * Alarms come from machine_alarm.h (raised by main/app_alarms.c). Reset sends a fault reset to
- * every axis that is in fault or was stopped by an error; the alarms then clear by themselves
- * once their condition is gone. Export to SD is not available yet (no SD card driver).
+ * Alarms come from machine_alarm.h (raised by components/app_core/app_alarms.c). Reset sends a
+ * fault reset to every axis that is in fault or was stopped by an error; the alarms then clear by
+ * themselves once their condition is gone. Export to SD is not available yet (no SD card driver).
  */
 
 #include <stdio.h>

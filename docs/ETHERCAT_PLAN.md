@@ -134,7 +134,7 @@ Chỉ chốt chu kỳ sau khi có histogram jitter đo được ở Phase 3.
 ### 3.6 Topology động: Scan → Xác nhận → Lưu (người dùng chốt 2026-10-03)
 
 **Trạng thái:** đã code ngày 2026-10-03, build sạch, **chưa chạy trên phần cứng**.
-- Code nằm trong `firmware/components/ecat/` và `firmware/main/`.
+- Code nằm trong `firmware/components/ecat/` và `firmware/components/app_core/` (trước 2026-10-31 là `firmware/main/`).
 - Chưa có HMI, nên các thao tác SCAN, ACCEPT, RE-CHECK tạm làm bằng lệnh console (`docs/SETUP.md` mục 7).
 - Lệnh `selftest` kiểm tra logic so sánh theo các kịch bản của mockup, không cần bus.
 
@@ -312,7 +312,7 @@ Mã nguồn: `firmware/components/soem/` (chi tiết trong `SOEM_UPSTREAM.md`).
 - **API:** `soem_esp_attach(eth)` gọi từ task ở core 1, trước `ecx_init()`.
 - **Ưu tiên:** task `emac_rx` = `SOEM_RT_TASK_PRIO + 1` (20) > task `ecat` (19) trên core 1, để frame luôn được nhận.
 
-Ứng dụng thử `firmware/main/main.c` (theo `samples/simple_ng`):
+Ứng dụng thử `firmware/components/app_core/app_core.c` (trước 2026-10-31 là `firmware/main/main.c`; theo `samples/simple_ng`):
 - quét slave, in danh sách; map IO; `ecx_configdc`; SAFE_OP → OP;
 - vòng cyclic theo deadline tuyệt đối (`CONFIG_APP_ECAT_CYCLE_US`, mặc định 1000 µs);
 - task `ecat_chk` (core 0) giám sát slave như `ecatcheck`, có kiểm tra lại danh tính và không tự phục hồi slave mất nguồn (mục 3.6);
@@ -322,7 +322,7 @@ Mã nguồn: `firmware/components/soem/` (chi tiết trong `SOEM_UPSTREAM.md`).
 - **Bảng thiết bị:** sinh từ ESI bằng `firmware/tools/esi2catalog.py` ra `ecat_catalog_gen.c`. Hiện có 6 thiết bị Leadshine và 20 module R1EC.
 - **Topology Scan → Xác nhận → Lưu** (mục 3.6), lưu trong NVS (namespace `ecat`, có CRC).
 - **Cấu hình R1EC** trong hook PO2SO (`ecat_coupler.c`), kích thước lấy từ ESI qua `soem_esp_set_pdo_layout()`. Đây là chỗ duy nhất phải vá SOEM; xem `SOEM_UPSTREAM.md`.
-- **Ứng dụng thử** (`main.c`):
+- **Ứng dụng thử** (`app_core.c`):
   - quét bus, so sánh với topology đã lưu;
   - khớp thì vào OP, không khớp thì giữ ở PRE-OP và chờ lệnh console;
   - lúc ở OP, mỗi giây in trạng thái và byte IO của coupler.
@@ -347,7 +347,7 @@ Mã nguồn: `firmware/components/soem/` (chi tiết trong `SOEM_UPSTREAM.md`).
   - Worker giữ `s_bus_lock` trong lúc chạy job.
   - Job ghi slave theo vị trí kèm vendor/product; nếu slave ở vị trí đó là thiết bị khác thì job bị từ chối.
   - **Thay đổi khoá:** vòng giữ PRE-OP (`hold_loop`) nhả `s_bus_lock` trong lúc chờ lệnh, để job SDO chạy được cả khi bus chưa vào OP.
-- **`main/app_alarms.c`**: task 200 ms trên core 0, chuyển trạng thái bus, trục, IO và đồng hồ thành alarm (`components/machine/machine_alarm.c`). Bảng mã ở `SETUP.md` mục 7d.
+- **`components/app_core/app_alarms.c`**: task 200 ms trên core 0, chuyển trạng thái bus, trục, IO và đồng hồ thành alarm (`components/machine/machine_alarm.c`). Bảng mã ở `SETUP.md` mục 7d.
 
 Chưa có: DC sync0 + vòng PI (`ec_sync`), soft limit do firmware tự kiểm tra (hiện chỉ có 0x607D trong drive), đo bằng GPIO/scope.
 
@@ -386,6 +386,8 @@ Chưa có: DC sync0 + vòng PI (`ec_sync`), soft limit do firmware tự kiểm t
 | RS485 (nếu dùng cho thiết bị phụ): RO 5 V vào chân 3.3 V, không có 120 Ω, khoảng mù 0.2–0.5 ms | Thấp/TB | Đo mức điện áp. Lắp trở cuối ngoài. Cấu hình timeout giao thức. |
 
 ## 8. Cấu trúc repository đề xuất
+
+**Hiện trạng (2026-10-31):** mỗi app là một project ESP-IDF trong `firmware/apps/<app>/`, dùng chung `firmware/components/`, `firmware/sdkconfig.defaults` và `firmware/partitions.csv` (`SETUP.md` mục 2 và 2c). `firmware/apps/general` là General App: `app_main()` chỉ gọi `app_core_start()`. Phần khởi động EtherCAT, HMI, alarm và console nằm trong component `app_core`. App cho từng máy được chép từ General App rồi thêm trình tự máy. Cây thư mục bên dưới là đề xuất ban đầu, giữ lại để tham khảo.
 
 **Hiện trạng (2026-10-03):** đã có `firmware/components/soem` (stack + port, thay cho `ethercat/third_party` + `port/` bên dưới),
 `firmware/components/board` (`board_pins.h`, `board_eth.c`) và `firmware/main/main.c` (ứng dụng thử).

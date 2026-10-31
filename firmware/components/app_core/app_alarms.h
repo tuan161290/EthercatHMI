@@ -16,7 +16,7 @@ typedef struct {
     uint32_t wkc_errors; /*!< Working-counter errors since OP started */
 } app_bus_info_t;
 
-/** Implemented by main.c. */
+/** Implemented by app_core.c. */
 void app_bus_info(app_bus_info_t *out);
 
 void app_alarms_start(void);
