@@ -146,6 +146,7 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
   - **Runs on hardware since 2026-10-11** (rack 2× SC-3200-1 + SC-0032-N-1 behind 7× L5N + 2× CL3B): rack read, 0xF030 written (sub0 then reads back the count), PDO assign accepted, ESI SM sizes accepted, OP with WKC 30/30. Results and open checks: `docs/SLAVES_LEADSHINE.md` 4.5.
   - **SOEM gotcha:** `ecx_statecheck(ctx, 0, …)` records the state in `slavelist[0]` only, and `ecx_mbxsend()` refuses any slave whose own recorded state is below PRE-OP. Call `ecx_readstate()` before SDO traffic that follows `ecx_config_init()` (the first R1EC scan failed with "0xF050 not readable" because of this).
 - `vendor/JC1060/` is the vendor package. It is **READ-ONLY**: never modify it, and never build inside it. Copy a demo to `C:\esp\smoke\...` before building it.
+  - Public copy on GitHub: https://github.com/wegi1/ESP32P4-JC1060P470C-I_W_Y (user, 2026-11-03). It is someone else's repo, with no licence, last pushed 2026-02-25, and apparently an earlier package than our zip, which stays the reference for the paths in these docs. Same top folders and identical schematic, P4 datasheet and C6 firmware, but one demo set in `1-Demo/Demo_IDF/ESP-IDF/` without the New/Old panel split, and no `V2.7` or `V3.7_New_Panel` firmware. It adds the English P4 datasheet and technical reference manual.
   - Schematic: `vendor/JC1060/5-Schematic/JC1060P470C_I_W_Y-V1.0.pdf` (1 sheet).
   - P4 datasheet: `vendor/JC1060/4-Driver_IC_Data_Sheet/ESP32_P4_Chip_Datasheet_CN_v0.4.1_0320 .pdf`. Note the space before `.pdf`.
   - IDF demos: `vendor/JC1060/1-Demo/Demo_IDF/ESP-IDF_5.5.4/JC1060P470C_I_W_Y_{New,Old}_Panel/`.
@@ -189,6 +190,7 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
   - Push from one PC at a time, and let SeaDrive finish syncing before switching PCs: two pushes into the synced bare repo can leave conflicting files in `refs/`.
   - The old copy `D:\ownCloud\Tuan\EthercatHMI` (and its Seafile copy `Tuan\EthercatHMI`) is frozen; do not edit there.
   - Not in git, kept in the cloud folder only (ownCloud, now Seafile): the vendor package zip (222 MB), `vendor/JC1060/`, `PGM/`.
+    - The user decided against adding the unpacked package (2026-11-03): about 180 MB more in the repo, and the public copy above is enough. `.gitignore` keeps an unpacked `vendor/JC1060/` out of `git add -A`.
   - Git is MinGit at `D:\esp\git\cmd\git.exe` (also in the user PATH).
   - `.gitattributes` is `* -text`: files are stored and checked out byte for byte. Git for Windows defaults to `core.autocrlf=true`, which turned every LF file into CRLF in a fresh clone. Most files are LF; SOEM, the ESI files and a few others are CRLF and must stay so.
   - After a change: `git add -A`, `git commit`, `git push`, `git push github`.

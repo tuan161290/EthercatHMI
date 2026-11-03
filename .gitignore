@@ -14,8 +14,9 @@ firmware/sdkconfig.old
 firmware/.cache/
 firmware/managed_components
 
-# Vendor package archive (222 MB): stays in ownCloud only
+# Vendor package: the archive (222 MB) and an unpacked copy stay out of git (CLAUDE.md, Git)
 *.zip
+vendor/JC1060/
 
 # Python
 __pycache__/

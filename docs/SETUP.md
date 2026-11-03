@@ -65,6 +65,7 @@ ownCloud làm mất file: file ảo không đọc được khi client tắt, và
 - **Chỉ push từ một máy tại một thời điểm.** Trước khi chuyển sang máy khác, đợi ownCloud báo đồng bộ xong. Hai máy cùng push vào repo bare đang đồng bộ có thể tạo file xung đột trong `refs/`.
 - Máy khác lấy code bằng `git clone D:/ownCloud/Tuan/Backup/EthercatHMI.git <thư mục ngoài ownCloud>` (đổi ổ theo máy), không làm việc trực tiếp trong ownCloud nữa.
 - Không đưa vào git, chỉ để trong ownCloud: file zip gói của hãng (222 MB), `vendor/JC1060/`, `PGM/`.
+- Gói của hãng có bản công khai trên GitHub: https://github.com/wegi1/ESP32P4-JC1060P470C-I_W_Y (ghi chú 2026-11-03). Đây là repo của người khác, không có license, cập nhật lần cuối 2026-02-25, và có vẻ là gói cũ hơn file zip. Cùng thư mục gốc, giống hệt sơ đồ nguyên lý, datasheet P4 và firmware C6, nhưng demo nằm chung trong `1-Demo/Demo_IDF/ESP-IDF/`, không tách New/Old Panel, và thiếu firmware `V2.7`, `V3.7_New_Panel`. Đường dẫn trong tài liệu này vẫn theo file zip. Không đưa bản giải nén vào git vì repo sẽ nặng thêm khoảng 180 MB.
 - Thư mục build `D:\esp\build\ehmi` được tạo lại cho đường dẫn mới. Từ 2026-10-31 mỗi app có thư mục build riêng `D:\esp\build\ehmi_<app>` (mục 2). Khi localhost hỏng (xem trên), cấu hình bằng:
   ```powershell
   $env:PATH = "D:\esp\python312;" + $env:PATH; $env:IDF_TOOLS_PATH = 'D:\esp\tools61'; . D:\esp\v6.1\esp-idf\export.ps1
