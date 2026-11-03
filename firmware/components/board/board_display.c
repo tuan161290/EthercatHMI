@@ -15,7 +15,6 @@
 #include "driver/i2c_master.h"
 #include "driver/ledc.h"
 #include "esp_check.h"
-#include "esp_idf_version.h"
 #include "esp_lcd_jd9165.h"
 #include "esp_lcd_mipi_dsi.h"
 #include "esp_lcd_panel_ops.h"
@@ -271,9 +270,6 @@ esp_err_t board_lcd_init(board_lcd_panel_t panel, board_lcd_t *out)
             .vsync_back_porch = 21,
             .vsync_front_porch = 12,
         },
-#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(6, 0, 0)
-        .flags = {.use_dma2d = true}, /* IDF 6: esp_lcd_dpi_panel_enable_dma2d() below */
-#endif
     };
     const jd9165_vendor_config_t vendor = {
         .init_cmds = d->init,
@@ -287,10 +283,8 @@ esp_err_t board_lcd_init(board_lcd_panel_t panel, board_lcd_t *out)
         .vendor_config = (void *)&vendor,
     };
     ESP_GOTO_ON_ERROR(esp_lcd_new_panel_jd9165(io, &dev, &lcd), err, TAG, "JD9165 panel");
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
     /* The JD9165 driver hands back the DPI panel itself (esp_lcd_jd9165.c: esp_lcd_new_panel_dpi). */
     ESP_GOTO_ON_ERROR(esp_lcd_dpi_panel_enable_dma2d(lcd), err, TAG, "DPI DMA2D");
-#endif
     ESP_GOTO_ON_ERROR(esp_lcd_panel_reset(lcd), err, TAG, "panel reset");
     ESP_GOTO_ON_ERROR(esp_lcd_panel_init(lcd), err, TAG, "panel init");
 

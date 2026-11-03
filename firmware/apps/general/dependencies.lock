@@ -190,6 +190,6 @@ direct_dependencies:
 - espressif/ip101
 - idf
 - lvgl/lvgl
-manifest_hash: f61c486ff73fc4c25ba5f79b6694dbec4d2f116900e356e702f2dc43689cdcbe
+manifest_hash: 63b2743f6e00241c5e2eda936824bd557d6a7c071a54501ae7729deefc577cfb
 target: esp32p4
 version: 3.0.0

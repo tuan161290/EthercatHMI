@@ -1,14 +1,7 @@
 # LVGL 9.6 (the code uses its per-flag setters such as lv_obj_set_hidden(), so it needs >= 9.6).
-# 9.6.0~1 is 9.6.0 repackaged with a fix that lets its PPA draw code build on IDF 5.x.
-# esp_lvgl_port 2.9 needs IDF 6 (on_frame_buf_complete), so IDF 5 stays on 2.8.
 dependencies:
-  idf: ">=5.5,<7.0"
+  idf: ">=6.1,<7.0"
   lvgl/lvgl:
     version: "9.6.0~1"
     public: true
-  espressif/esp_lvgl_port:
-    matches:
-      - if: "idf_version >=6.0"
-        version: "2.9.0"
-      - if: "idf_version <6.0"
-        version: "~2.8.0"
+  espressif/esp_lvgl_port: "2.9.0"

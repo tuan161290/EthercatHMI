@@ -146,7 +146,7 @@ lv_result_t lv_mem_test_core(void)
 
 const esp_app_desc_t *esp_app_get_description(void)
 {
-    static const esp_app_desc_t d = {"1", "ehmi_general", __TIME__, __DATE__, "v5.5.4"};
+    static const esp_app_desc_t d = {"1", "ehmi_general", __TIME__, __DATE__, "v6.1"};
     return &d;
 }
 
@@ -164,7 +164,7 @@ esp_err_t esp_flash_get_size(esp_flash_t *chip, uint32_t *out_size)
 
 const char *esp_get_idf_version(void)
 {
-    return "v5.5.4";
+    return "v6.1";
 }
 
 esp_err_t esp_efuse_mac_get_default(uint8_t *mac)

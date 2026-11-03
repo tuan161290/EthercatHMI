@@ -205,6 +205,8 @@ Chỉ chốt chu kỳ sau khi có histogram jitter đo được ở Phase 3.
 
 ## 4. Cấu hình esp_eth đã kiểm chứng (ESP-IDF v5.5.x)
 
+Từ 2026-11-03 firmware chỉ build trên IDF 6.1. Code đang dùng nằm ở `firmware/components/board/board_eth.c`; đoạn dưới đây được đối chiếu với v5.5.4.
+
 Tên field đã đối chiếu với header v5.5.4. Chân và clock theo SCH p1 (hộp alias + U4).
 
 ```c

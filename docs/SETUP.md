@@ -4,12 +4,14 @@ Nguồn và quy ước trích dẫn giống `docs/BOARD.md`.
 
 ## 0. Trạng thái hiện tại (đã cài và kiểm tra 2026-10-03)
 
+**Từ 2026-11-03 dự án chỉ build bằng ESP-IDF v6.1 và LVGL 9.6** (lý do ở cuối mục này). IDF v5.5.4 chỉ còn dùng cho các demo của hãng ở mục 5 và 6. Các bảng dưới đây ghi những gì đã cài trên từng máy.
+
 | Thành phần | Trạng thái |
 |---|---|
 | Git for Windows 2.55 | `C:\Program Files\Git` (cài bằng winget) |
 | ESP-IDF Installation Manager (EIM) 0.19 | lệnh `eim` (winget `Espressif.EIM-CLI`) |
-| **ESP-IDF v5.5.4** (bản dùng cho dự án, đang được chọn) | `C:\esp\v5.5.4\esp-idf`; tools + Python 3.13 venv ở `C:\Espressif\tools` |
-| ESP-IDF v6.1 (chỉ để thử, **không dùng**) | `C:\esp\v6.1\esp-idf` |
+| ESP-IDF v5.5.4 (chỉ cho demo của hãng, mục 5 và 6) | `C:\esp\v5.5.4\esp-idf`; tools + Python 3.13 venv ở `C:\Espressif\tools` |
+| **ESP-IDF v6.1** (bản dùng cho dự án từ 2026-11-03) | `C:\esp\v6.1\esp-idf` |
 | VS Code extension ESP-IDF 2.3.0 | đã cài; dùng bản IDF đang chọn trong EIM |
 | Thư mục build | **ngoài ownCloud**: `C:\esp\build\...` |
 | Bản copy demo dùng để smoke test | `C:\esp\smoke\{v554,v61}\...` (có thể xoá) |
@@ -22,21 +24,26 @@ Vì vậy **luôn build ra `C:\esp\build\...`** bằng `-B`.
 | Thành phần | Vị trí |
 |---|---|
 | EIM 0.20 | winget `Espressif.EIM-CLI` |
-| ESP-IDF v5.5.4 | `D:\esp\v5.5.4\esp-idf` |
+| ESP-IDF v5.5.4. **Chưa có v6.1**, phải cài trước khi build dự án. | `D:\esp\v5.5.4\esp-idf` |
 | Tools (chỉ target esp32p4), Python 3.12 venv, `Microsoft.v5.5.4.PowerShell_profile.ps1` | `D:\Espressif\tools` |
 | Danh sách bản IDF của EIM | `C:\Espressif\tools\eim_idf.json` (file nhỏ, để nguyên ở ổ C cho `eim` và VS Code tìm thấy) |
 | Thư mục dự án | `D:\OwnCloud\Tuan\EthercatHMI`. `LongPathsEnabled = 1`. `managed_components` là thư mục thường, không phải junction. |
-| Thư mục build và sao lưu | `D:\esp\build\ehmi`, `D:\esp\backup` |
+| Thư mục build và sao lưu | `D:\esp\build\ehmi_<app>`, `D:\esp\backup` |
 
-Lệnh cài (cấu hình được lưu ở `D:\Espressif\eim_config.toml`):
+Lệnh cài cho dự án (cấu hình được lưu ở `D:\Espressif\eim_config.toml`; v6.1 chưa cài thử trên máy này, và tên profile `Microsoft.v6.1.PowerShell_profile.ps1` suy ra từ bản v5.5.4):
 ```powershell
 winget install Espressif.EIM-CLI
-eim install -p D:\esp -i v5.5.4 -t esp32p4 -n true --tool-download-folder-name D:\Espressif\dist --tool-install-folder-name D:\Espressif\tools --activation-script-path-override D:\Espressif\tools
+eim install -p D:\esp -i v6.1 -t esp32p4 -n true --tool-download-folder-name D:\Espressif\dist --tool-install-folder-name D:\Espressif\tools --activation-script-path-override D:\Espressif\tools
 ```
 **Máy thứ ba (DESKTOP-2LDQI5D, 2026-10-12):** `D:\esp` và `D:\Espressif` được chép nguyên từ máy thứ hai, không cài bằng EIM. Máy không có Python, nên venv của IDF (`pyvenv.cfg` trỏ tới `C:\Users\Tuan\...\Python312`) báo `No Python at ...`. Cách sửa: tải Python 3.12.10 bản portable (gói NuGet `python` 3.12.10 của python.org, thư mục `tools`) vào `D:\esp\python312`, rồi đổi `home`/`executable`/`command` trong `D:\Espressif\tools\python\v5.5.4\venv\pyvenv.cfg` sang đường dẫn đó (bản gốc giữ ở `pyvenv.cfg.orig-Tuan`). Phải đúng 3.12.x vì các gói trong venv được build cho cp312. Sau đó `idf.py -B D:\esp\build\ehmi build` chạy được.
 
+**IDF v6.1 trên máy thứ ba (từ 2026-10-30):** `D:\esp\v6.1\esp-idf`, tools ở `D:\esp\tools61` (tách khỏi `D:\Espressif` của EIM, nơi vẫn giữ v5.5.4), Python gốc `D:\esp\python312`. Tải từ GitHub hay bị đứng trên mạng này: dùng `IDF_GITHUB_ASSETS=dl.espressif.com/github_assets` cho tools và `git submodule update --depth 1` cho từng submodule. Kích hoạt:
+```powershell
+$env:PATH = "D:\esp\python312;" + $env:PATH; $env:IDF_TOOLS_PATH = 'D:\esp\tools61'; . D:\esp\v6.1\esp-idf\export.ps1
+```
+
 Các lỗi khác gặp trên máy thứ ba (2026-10-12):
-- **`idf.py` treo ngay khi chạy, không in gì, không dùng CPU:** kết nối TCP tới `127.0.0.1` của Windows bị chặn. Lúc đó FortiClient vừa được bật; chưa xác nhận chắc chắn nó là nguyên nhân. `asyncio` của Python tạo cặp socket qua localhost và đứng ở `accept()`. Kiểm tra: một `TcpListener`/`TcpClient` trên loopback trong PowerShell cũng timeout. Cách đi vòng: build bằng `ninja` trong `D:\esp\build\ehmi` (thư mục build đã cấu hình), nạp bằng `python -m esptool ... write_flash "@flash_args"` trong thư mục build. `idf.py monitor` và `flash.bat` vẫn cần localhost.
+- **`idf.py` treo ngay khi chạy, không in gì, không dùng CPU:** kết nối TCP tới `127.0.0.1` của Windows bị chặn. Lúc đó FortiClient vừa được bật; chưa xác nhận chắc chắn nó là nguyên nhân. `asyncio` của Python tạo cặp socket qua localhost và đứng ở `accept()`. Kiểm tra: một `TcpListener`/`TcpClient` trên loopback trong PowerShell cũng timeout. Cách đi vòng: build bằng `ninja` trong `D:\esp\build\ehmi_general` (thư mục build đã cấu hình), nạp bằng `python -m esptool ... write-flash "@flash_args"` trong thư mục build. `idf.py monitor` và `flash.bat` vẫn cần localhost. Ngày 2026-11-03 loopback chạy được và `flash.ps1 -Action build` build xong qua `idf.py`.
 - **`.component_hash ... does not exist`:** `firmware/managed_components` là thư mục thường trong ownCloud và đã được ownCloud tải về từ máy khác. ownCloud không đồng bộ file ẩn (tên bắt đầu bằng dấu chấm), nên mất `.component_hash`. Đã sửa như mục 1: chuyển thư mục cũ sang `D:\esp\managed\ehmi_from_owncloud_20261012` và tạo junction `managed_components` → `D:\esp\managed\ehmi`.
 - **Simulator: `cl : Command line error D8050` trên mọi file:** `D:\esp\build\hmi_sim\vsenv.txt` được chép từ máy khác, đặt `TEMP` thành `C:\Users\Tuan\...`. `sim_build.py` giờ tự tạo lại cache khi `USERPROFILE` khác.
 
@@ -60,35 +67,37 @@ ownCloud làm mất file: file ảo không đọc được khi client tắt, và
 - Không đưa vào git, chỉ để trong ownCloud: file zip gói của hãng (222 MB), `vendor/JC1060/`, `PGM/`.
 - Thư mục build `D:\esp\build\ehmi` được tạo lại cho đường dẫn mới. Từ 2026-10-31 mỗi app có thư mục build riêng `D:\esp\build\ehmi_<app>` (mục 2). Khi localhost hỏng (xem trên), cấu hình bằng:
   ```powershell
-  . D:\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1
+  $env:PATH = "D:\esp\python312;" + $env:PATH; $env:IDF_TOOLS_PATH = 'D:\esp\tools61'; . D:\esp\v6.1\esp-idf\export.ps1
   mkdir D:\esp\build\ehmi_general; cd D:\esp\build\ehmi_general
-  cmake -G Ninja -DPYTHON_DEPS_CHECKED=1 -DPYTHON=D:\Espressif\tools\python\v5.5.4\venv\Scripts\python.exe -DESP_PLATFORM=1 -DCCACHE_ENABLE=0 D:\Projects\EthercatHMI\firmware\apps\general
+  cmake -G Ninja -DPYTHON_DEPS_CHECKED=1 -DPYTHON=D:\esp\tools61\python_env\idf6.1_py3.12_env\Scripts\python.exe -DESP_PLATFORM=1 -DCCACHE_ENABLE=0 D:\Projects\EthercatHMI\firmware\apps\general
   ninja
   ```
 
 Kết nối tới GitHub có lúc bị đứt giữa chừng (`error decoding response body`). EIM tự thử lại 3 lần, mỗi lần tải lại từ đầu. Lần cài này toolchain `riscv32-esp-elf` (673 MB) thành công ở lần thứ 2.
 
-### Vì sao dùng v5.5.4 mà không dùng bản mới nhất (v6.1)
-Đã build thử cả hai bản trên demo của hãng:
+### Vì sao dùng v6.1 và LVGL 9.6 (từ 2026-11-03)
+
+Đây là các bản phát hành mới nhất tại thời điểm 2026-11-03: ESP-IDF v6.1 (GCC 15.2, esptool 5.6), LVGL 9.6.0~1, esp_lvgl_port 2.9.0. Người dùng đã thử với servo thật rồi chọn chỉ dùng bộ này. `idf_component.yml` yêu cầu `idf >=6.1,<7.0`, nên build bằng IDF 5.5.4 sẽ dừng ngay ở bước cấu hình.
+
+`esp_hosted` vẫn ở 2.11.7, dù registry đã có 3.0.10: C6 trên board đang chạy 2.3.0 và `net.c` sửa một bảng nội bộ của esp_hosted, nên lên bản chính mới phải thử trên board trước.
+
+BSP của hãng vẫn không build được trên 6.x, nhưng firmware này không dùng BSP đó (`components/board` là code của dự án). Kết quả build thử demo của hãng:
 
 | Demo | v5.5.4 | v6.1 |
 |---|---|---|
 | `ethernet` | build được ngay | cần thêm component `espressif/ip101` + `#include "esp_eth_phy_ip101.h"` (IDF 6 tách driver PHY ra khỏi lõi) |
 | `lvgl_demo_v9` | build được sau 2 bản vá ở mục 6 | **lỗi**: BSP 5.2.3 của hãng dùng `pixel_format`, `LCD_COLOR_PIXEL_FORMAT_RGB565`, `use_dma2d` đã bị xoá; `esp-audio-player` thiếu `driver/i2s_std.h` |
 
-Chuyển lên 6.x chỉ khi có BSP hỗ trợ IDF 6, hoặc khi sẵn sàng tự port phần hiển thị.
-Nhánh 5.5 còn có bản vá **v5.5.5** (chưa thử).
-
 ## 1. Mở môi trường ESP-IDF
 
 Trong PowerShell:
 ```powershell
-. C:\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1
-idf.py --version      # ESP-IDF v5.5.4
+. C:\Espressif\tools\Microsoft.v6.1.PowerShell_profile.ps1
+idf.py --version      # ESP-IDF v6.1
 ```
 Cảnh báo `Git version unavailable` là vô hại: IDF được cài từ bản nén, không phải git clone.
 
-Chọn bản IDF mặc định (dùng cho VS Code extension): `eim list`, `eim select v5.5.4`.
+Chọn bản IDF mặc định (dùng cho VS Code extension): `eim list`, `eim select v6.1`.
 
 **Khuyến nghị cho ownCloud:** trong ownCloud client → Settings → Edit Ignored Files, thêm `build`, `managed_components`,
 `sdkconfig.old`, `.cache`. Firmware đã build ra ngoài, nhưng component manager vẫn tải `managed_components/` vào thư mục dự án khi có phụ thuộc từ registry.
@@ -109,7 +118,7 @@ Từ 2026-10-31 `firmware/` chứa nhiều app, mỗi app là một project ESP-
 App gốc là **General App** (`firmware/apps/general`): chỉ gọi `app_core_start()`, chưa có trình tự máy.
 
 ```powershell
-. C:\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1
+. C:\Espressif\tools\Microsoft.v6.1.PowerShell_profile.ps1
 cd C:\Users\Tuan\ownCloud\Tuan\EthercatHMI\firmware\apps\general
 idf.py -B C:\esp\build\ehmi_general build
 idf.py -B C:\esp\build\ehmi_general -p COM5 flash monitor     # thoát monitor: Ctrl+]
@@ -117,15 +126,15 @@ idf.py -B C:\esp\build\ehmi_general -p COM5 flash monitor     # thoát monitor: 
 - Cấu hình: `firmware/sdkconfig.defaults` cho mọi app, rồi `firmware/apps/<app>/sdkconfig.defaults` cho riêng app đó (ghi đè cái chung). `idf.py -B C:\esp\build\ehmi_general menuconfig` để chỉnh
   (*SOEM EtherCAT master*, *EtherCAT HMI application*, *Board: Guition JC1060P470C_I_W_Y*, *HMI (LVGL)*, *EtherCAT axes*).
 - File `sdkconfig` nằm trong thư mục build (`C:\esp\build\ehmi_general\sdkconfig`), không nằm trong thư mục app. Sửa file defaults thì xoá file `sdkconfig` đó để IDF tạo lại; giá trị đã có trong `sdkconfig` không bị defaults ghi đè.
-- Không commit `sdkconfig`, `build/`, `managed_components/`. **Có** commit `dependencies.lock` của từng app: nó ghim LVGL 9.6.0~1, esp_lvgl_port (2.9.0 với IDF 6, 2.8.0~1 với IDF 5.5.4), esp_lcd_jd9165 2.0.2, esp_lcd_touch_gt911 1.2.1.
+- Không commit `sdkconfig`, `build/`, `managed_components/`. **Có** commit `dependencies.lock` của từng app: nó ghim LVGL 9.6.0~1, esp_lvgl_port 2.9.0, esp_lcd_jd9165 2.0.2, esp_lcd_touch_gt911 1.2.1.
 - Bảng phân vùng là `firmware/partitions.csv` (app 6 MB). `nvs` vẫn ở 0x9000, nên topology EtherCAT đã lưu không mất.
 - **Nội suy 2 trục (CSP)** mặc định tắt từ 2026-10-31, vì máy chỉ cần Profile Position. Muốn bật lại, thêm `CONFIG_ECAT_PATH=y` vào `sdkconfig.defaults` của app rồi xoá `sdkconfig` trong thư mục build. Khi đó tab Manual › Interpolation và lệnh `path` có lại (mục 7e).
 
 ### 2b. Nạp bằng `firmware\flash.bat` (cách nhanh)
 
-Nhấp đúp `firmware\flash.bat`, hoặc chạy `flash.bat COM7` trong terminal để chỉ định cổng. Phần xử lý nằm trong `firmware\tools\flash.ps1`. Không cần mở terminal ESP-IDF trước: script tự nạp môi trường v5.5.4.
+Nhấp đúp `firmware\flash.bat`, hoặc chạy `flash.bat COM7` trong terminal để chỉ định cổng. Phần xử lý nằm trong `firmware\tools\flash.ps1`. Không cần mở terminal ESP-IDF trước: script tự nạp môi trường v6.1.
 
-Script tìm `Microsoft.v5.5.4.PowerShell_profile.ps1` trong `C:\Espressif\tools`, nếu không có thì tìm trong `D:\Espressif\tools`. Thư mục build và thư mục sao lưu nằm cùng ổ với ESP-IDF: `<ổ>:\esp\build\ehmi_<app>` và `<ổ>:\esp\backup`. Các đường dẫn `C:\esp\...` trong tài liệu này ứng với máy cài trên ổ C; máy cài trên ổ D thì đổi thành `D:\...`.
+Script tìm trên ổ C: rồi ổ D:: `Microsoft.v6.1.PowerShell_profile.ps1` trong `<ổ>:\Espressif\tools` (cài bằng EIM), hoặc `<ổ>:\esp\v6.1\esp-idf` kèm `<ổ>:\esp\tools61` (cài tay, như máy thứ ba). Không thấy thì script báo lỗi và dừng. Thư mục build và thư mục sao lưu nằm cùng ổ với ESP-IDF: `<ổ>:\esp\build\ehmi_<app>` và `<ổ>:\esp\backup`. Các đường dẫn `C:\esp\...` trong tài liệu này ứng với máy cài trên ổ C; máy cài trên ổ D thì đổi thành `D:\...`.
 
 Script làm việc với một app trong `firmware\apps`. Nếu chỉ có một app (hiện là `general`), script tự chọn nó. Nếu có nhiều app, script hỏi lúc mở, và dòng đầu menu ghi app đang chọn.
 
@@ -144,7 +153,7 @@ Script làm việc với một app trong `firmware\apps`. Nếu chỉ có một 
 - **Trước khi ghi, script luôn:**
   1. Đọc chip revision bằng esptool. Nếu revision không khớp với bản build (v1.x hay v3.x, xem mục 4) thì dừng, không ghi gì.
   2. Kiểm tra bản sao lưu gốc của board tại `<ổ>:\esp\backup\<MAC>\factory_full_16MB.bin`. Nếu chưa có, script hỏi: sao lưu ngay (mặc định), bỏ qua, hoặc huỷ. Mỗi board có thư mục riêng theo MAC. Bên cạnh file `.bin` có file `.txt` ghi thời gian, SHA-256 và thông tin chip.
-- **Nạp** bằng `esptool write_flash @flash_args` trong thư mục build, đúng lệnh mà `idf.py` in ra sau khi build.
+- **Nạp** bằng `esptool write-flash @flash_args` trong thư mục build, đúng lệnh mà `idf.py` in ra sau khi build.
 - **Đặt giờ sau khi nạp:** mục 1 và 2 chờ board khởi động lại (tối đa 30 s), rồi gửi giờ của máy tính xuống console bằng lệnh `clock`. Firmware ghi luôn vào RTC. Phần này do `firmware\tools\set_clock.py COMx` làm, chạy riêng cũng được (mục 7), board không bị reset.
   - Script đọc múi giờ của board (Settings › Time) từ lệnh `clock`, rồi đổi giờ UTC của máy tính sang múi giờ đó. Máy tính đặt múi giờ nào cũng được.
   - Đặt giờ không được thì script chỉ cảnh báo và in câu trả lời của board, rồi vẫn mở monitor.
@@ -194,6 +203,8 @@ Sửa lỗi trong phần chung (`components`, `app_core`, `sdkconfig.defaults` c
 - **Không chạy `idf.py set-target`** trên demo vendor. Lệnh này tạo lại sdkconfig và làm mất thiết lập revision. sdkconfig của vendor đã có sẵn target esp32p4.
 
 ## 5. Smoke test #1 — demo Ethernet (vendor) — **đã build được trên v5.5.4**
+
+Demo của hãng không build trên IDF 6 (mục 0), nên mục 5 và 6 vẫn dùng v5.5.4. Firmware dự án thì chỉ build trên v6.1.
 
 ```powershell
 . C:\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1

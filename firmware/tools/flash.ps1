@@ -31,13 +31,24 @@ param(
     [string]$App = ""
 )
 
-# EIM installs ESP-IDF v5.5.4 on C: on one PC and on D: on another (docs\SETUP.md section 0).
+# ESP-IDF v6.1 on C: or D:, installed by EIM or by hand in <drive>:\esp\v6.1 with its tools in
+# <drive>:\esp\tools61 (docs\SETUP.md section 0).
 # Build output and flash backups go under <drive>:\esp on the same drive.
 $IdfDrive = "C:"
+$IdfProfile = ""
+$IdfExport = ""
 foreach ($d in @("C:", "D:")) {
-    if (Test-Path "$d\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1") { $IdfDrive = $d; break }
+    if (Test-Path "$d\Espressif\tools\Microsoft.v6.1.PowerShell_profile.ps1") {
+        $IdfDrive = $d
+        $IdfProfile = "$d\Espressif\tools\Microsoft.v6.1.PowerShell_profile.ps1"
+        break
+    }
+    if ((Test-Path "$d\esp\v6.1\esp-idf\export.ps1") -and (Test-Path "$d\esp\tools61")) {
+        $IdfDrive = $d
+        $IdfExport = "$d\esp\v6.1\esp-idf\export.ps1"
+        break
+    }
 }
-$IdfProfile = "$IdfDrive\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1"
 $BackupRoot = "$IdfDrive\esp\backup"
 $FlashBytes = 16MB
 $FirmwareDir = Split-Path -Parent $PSScriptRoot
@@ -50,7 +61,6 @@ $UsbSerialJtag = "USB\VID_303A&PID_1001*" # Espressif USB-Serial-JTAG = the USB2
 
 $script:Py = ""
 $script:IdfPy = ""
-$script:EspTool = ""
 $script:Ok = $false
 
 function Write-Step([string]$Text) { Write-Host ""; Write-Host "==> $Text" -ForegroundColor Cyan }
@@ -63,16 +73,21 @@ function Read-Answer([string]$Prompt) { return "$(Read-Host $Prompt)".Trim() }
 # Helpers that return values (no external tool output reaches their pipeline)
 
 function Initialize-Idf {
-    if (-not (Test-Path $IdfProfile)) {
-        Write-Fail "Không tìm thấy ESP-IDF v5.5.4 ở C:\Espressif\tools hoặc D:\Espressif\tools"
+    if ($IdfProfile -eq "" -and $IdfExport -eq "") {
+        Write-Fail "Không tìm thấy ESP-IDF v6.1 ở ổ C: hoặc D:. Xem docs\SETUP.md mục 0."
         return $false
     }
-    Write-Step "Nạp môi trường ESP-IDF v5.5.4"
-    . $IdfProfile *> $null
+    Write-Step "Nạp môi trường ESP-IDF v6.1"
+    if ($IdfProfile -ne "") {
+        . $IdfProfile *> $null
+    } else {
+        $env:PATH = "$IdfDrive\esp\python312;" + $env:PATH
+        $env:IDF_TOOLS_PATH = "$IdfDrive\esp\tools61"
+        . $IdfExport *> $null
+    }
     $script:Py = Join-Path $env:IDF_PYTHON_ENV_PATH "Scripts\python.exe"
     $script:IdfPy = Join-Path $env:IDF_PATH "tools\idf.py"
-    $script:EspTool = Join-Path $env:IDF_PATH "components\esptool_py\esptool\esptool.py"
-    foreach ($f in @($script:Py, $script:IdfPy, $script:EspTool)) {
+    foreach ($f in @($script:Py, $script:IdfPy)) {
         if (-not (Test-Path $f)) {
             Write-Fail "Thiếu $f"
             return $false
@@ -116,7 +131,7 @@ function Get-Port {
 
 function Get-ChipInfo([string]$P) {
     Write-Step "Đọc thông tin chip trên $P"
-    $lines = @(& $script:Py $script:EspTool --chip esp32p4 -p $P flash_id 2>&1 | ForEach-Object { "$_" })
+    $lines = @(& $script:Py -m esptool --chip esp32p4 -p $P flash-id 2>&1 | ForEach-Object { "$_" })
     $code = $LASTEXITCODE
     $lines | ForEach-Object { Write-Host "    $_" }
     if ($code -ne 0) {
@@ -227,7 +242,7 @@ function Invoke-Backup([string]$P, $chip, [string]$File) {
     $script:Ok = $false
     New-Item -ItemType Directory -Force (Split-Path -Parent $File) | Out-Null
     Write-Step "Sao lưu toàn bộ flash 16 MB vào $File (mất vài phút)"
-    & $script:Py $script:EspTool --chip esp32p4 -p $P -b 921600 read_flash 0 0x1000000 $File
+    & $script:Py -m esptool --chip esp32p4 -p $P -b 921600 read-flash 0 0x1000000 $File
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $File)) {
         Write-Fail "Sao lưu thất bại."
         Remove-Item $File -ErrorAction SilentlyContinue
@@ -289,7 +304,7 @@ function Invoke-Flash {
 
     Write-Step "Nạp firmware qua $p"
     Push-Location $BuildDir
-    & $script:Py $script:EspTool --chip esp32p4 -p $p -b 460800 --before default_reset --after hard_reset write_flash "@flash_args"
+    & $script:Py -m esptool --chip esp32p4 -p $p -b 460800 --before default-reset --after hard-reset write-flash "@flash_args"
     $code = $LASTEXITCODE
     Pop-Location
     if ($code -ne 0) {

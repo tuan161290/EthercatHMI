@@ -10,10 +10,7 @@
 #include "esp_check.h"
 #include "esp_eth.h"
 #include "esp_eth_mac_esp.h"
-#include "esp_idf_version.h"
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
 #include "esp_eth_phy_ip101.h" /* espressif/ip101 from the registry since IDF 6.0 */
-#endif
 #include "esp_event.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -49,7 +46,7 @@ esp_err_t board_eth_init(uint32_t rx_task_prio, esp_eth_handle_t *out_eth)
     emac.smi_gpio.mdio_num = BOARD_ETH_MDIO_GPIO;
     emac.interface = EMAC_DATA_INTERFACE_RMII;
     emac.clock_config.rmii.clock_mode = EMAC_CLK_EXT_IN;
-    emac.clock_config.rmii.clock_gpio = BOARD_ETH_REF_CLK_GPIO; /* an int on the P4 (IDF 5.5 and 6.x) */
+    emac.clock_config.rmii.clock_gpio = BOARD_ETH_REF_CLK_GPIO; /* an int on the P4 */
     emac.emac_dataif_gpio.rmii.tx_en_num = BOARD_ETH_TX_EN_GPIO;
     emac.emac_dataif_gpio.rmii.txd0_num = BOARD_ETH_TXD0_GPIO;
     emac.emac_dataif_gpio.rmii.txd1_num = BOARD_ETH_TXD1_GPIO;
