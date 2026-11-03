@@ -42,6 +42,8 @@ Các lỗi khác gặp trên máy thứ ba (2026-10-12):
 
 ### Dự án ra khỏi ownCloud, sao lưu bằng git (2026-10-12)
 
+**Cập nhật:** từ 2026-10-22 bản sao lưu git nằm trên Seafile thay cho ownCloud. Từ 2026-11-03 có thêm repo private trên GitHub: https://github.com/tuan161290/EthercatHMI. `git push` ghi vào Seafile và `D:\esp\backup`; `git push github` cập nhật GitHub. Máy khác có thể `git clone` từ GitHub, sau khi chạy `gh auth login`. App hiển thị biến tần Deye đã tách thành project riêng `D:\Projects\SolarMonitor`. Các dòng về ownCloud bên dưới là lịch sử.
+
 ownCloud làm mất file: file ảo không đọc được khi client tắt, và file ẩn (tên bắt đầu bằng dấu chấm) không bao giờ được đồng bộ. Vì vậy dự án được chuyển ra ngoài ownCloud, và ownCloud chỉ giữ bản sao lưu git.
 
 | Thứ | Vị trí |

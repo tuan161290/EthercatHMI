@@ -3,6 +3,8 @@
 ## Purpose
 Firmware for an **HMI + EtherCAT master** on a Guition **JC1060P470C_I_W_Y**: a 7" 1024x600 MIPI-DSI display with an ESP32-P4 and an ESP32-C6 inside module U3 "JC-ESP32P4-M3". The EtherCAT master (SOEM) runs over the P4's internal EMAC and the on-board RJ45. The HMI uses LVGL 9.5 (shell and Main page written; boots on the board without errors since 2026-10-10, but nobody has yet checked the picture and touch on the screen).
 
+This project is the EtherCAT app only. The Deye inverter display is a separate, independent project, `D:\Projects\SolarMonitor` (user, 2026-11-03). It started from copies of `components/board`, `machine` and `net` and shares no files with this repo, so a fix is carried over by hand if the other project needs it. Both keep the same partition table, so either can be flashed on the board and the settings survive.
+
 Target machine (planning stage; hardware not available yet): about **8 Leadshine EtherCAT axes (CiA402)** plus **Leadshine R1EC remote IO**.
 - **Motion is Profile Position only** (user, 2026-10-31), plus PV for continuous jog and HM for homing. CSP is not needed, so the cycle may run late or jitter. The hard limits are the drives' SM watchdog (about 100 ms without frames) and the 3-bad-WKC rule. The CSP path code (`ecat_path_*`, Manual › Interpolation) is a test only.
 - ESI files are in `vendor/ESI/` (Leadshine L5N, L3N, CL3B-EC, R1EC; Fastech). The folder is **read-only**.
@@ -152,7 +154,10 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
 - **Git, and the project lives outside ownCloud** (2026-10-12, because ownCloud lost files: virtual files unreadable while the client is off, dot files such as `.component_hash` never synced):
   - Working copy: `D:\Projects\EthercatHMI` on DESKTOP-2LDQI5D, branch `main`, `.gitignore` at the root.
   - **Seafile since 2026-10-22** (the user left ownCloud). Remote `seafile` = bare repo `D:\SeaDrive\tuan161290\My Libraries\My Library\Tuan\Backup\EthercatHMI-seafile.git`. SeaDrive uploads it to the server, so this is the off-machine backup. Other PCs `git clone` from it instead of working inside a synced folder.
-  - `git push` writes to two places: the `seafile` remote has a second push URL, `D:\esp\backup\EthercatHMI.git` (same disk; also remote `backup`).
+  - `git push` writes to two places: the `seafile` remote has a second push URL, `D:\esp\backup\EthercatHMI.git` (same disk; also remote `backup`). It does not reach GitHub.
+  - **GitHub since 2026-11-03:** private repo https://github.com/tuan161290/EthercatHMI (remote `github`), EtherCAT app only. `git push github` sends the branches `main`, `lvgl9.6`, `idf6.1` and `camera`, the list in `remote.github.push`. Another PC needs `gh auth login`.
+    - Keep it private: the SOEM licence decision is open and `vendor/ESI` is the vendors' files. History was scanned before the first push: no real passwords, only the placeholder `ChangeMeToALongRandomPassword` in `server/camera`.
+    - **Never push `archive/inverter-solar` to GitHub.** That branch (also on Seafile) keeps the Inverter page and `solar_monitor` as they were when they left this repo, at e80bc98.
   - Sync services drop files inside `.git` folders. Found on 2026-10-22: the ownCloud bare repo `D:\ownCloud\Tuan\Backup\EthercatHMI.git` had lost its pack files (pushes refused); the Seafile copies `Tuan\Backup\EthercatHMI.git` (no refs left; history only to e21b823) and `Tuan\EthercatHMI\.git` (`bad object refs/heads/main`) are broken too. None of them is used; the user decides when to delete them.
     - After a push, check the Seafile repo: `git --git-dir="<seafile repo>" fsck --full` and `git ls-remote seafile`.
   - Push from one PC at a time, and let SeaDrive finish syncing before switching PCs: two pushes into the synced bare repo can leave conflicting files in `refs/`.
@@ -160,7 +165,7 @@ Target machine (planning stage; hardware not available yet): about **8 Leadshine
   - Not in git, kept in the cloud folder only (ownCloud, now Seafile): the vendor package zip (222 MB), `vendor/JC1060/`, `PGM/`.
   - Git is MinGit at `D:\esp\git\cmd\git.exe` (also in the user PATH).
   - `.gitattributes` is `* -text`: files are stored and checked out byte for byte. Git for Windows defaults to `core.autocrlf=true`, which turned every LF file into CRLF in a fresh clone. Most files are LF; SOEM, the ESI files and a few others are CRLF and must stay so.
-  - After a change: `git add -A`, `git commit`, `git push`.
+  - After a change: `git add -A`, `git commit`, `git push`, `git push github`.
 - Keep settings in `sdkconfig.defaults`; do not commit `sdkconfig`, `build/` or `managed_components/`.
   - After changing the defaults, delete `firmware/sdkconfig` so IDF regenerates it.
   - Commit `firmware/dependencies.lock`. Versions are pinned in each component's `idf_component.yml`: LVGL 9.5.0, esp_lvgl_port ~2.8.0 (2.9.0 breaks on IDF 5.5.4), esp_lcd_jd9165 2.0.2, GT911 1.2.1.
