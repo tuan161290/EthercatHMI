@@ -43,7 +43,7 @@ $env:PATH = "D:\esp\python312;" + $env:PATH; $env:IDF_TOOLS_PATH = 'D:\esp\tools
 ```
 
 Các lỗi khác gặp trên máy thứ ba (2026-10-12):
-- **`idf.py` treo ngay khi chạy, không in gì, không dùng CPU:** kết nối TCP tới `127.0.0.1` của Windows bị chặn. Lúc đó FortiClient vừa được bật; chưa xác nhận chắc chắn nó là nguyên nhân. `asyncio` của Python tạo cặp socket qua localhost và đứng ở `accept()`. Kiểm tra: một `TcpListener`/`TcpClient` trên loopback trong PowerShell cũng timeout. Cách đi vòng: build bằng `ninja` trong `D:\esp\build\ehmi_general` (thư mục build đã cấu hình), nạp bằng `python -m esptool ... write-flash "@flash_args"` trong thư mục build. `idf.py monitor` và `flash.bat` vẫn cần localhost. Ngày 2026-11-03 loopback chạy được và `flash.ps1 -Action build` build xong qua `idf.py`.
+- **`idf.py` treo ngay khi chạy, không in gì, không dùng CPU:** kết nối TCP tới `127.0.0.1` của Windows bị chặn. Lúc đó FortiClient vừa được bật; chưa xác nhận chắc chắn nó là nguyên nhân. `asyncio` của Python tạo cặp socket qua localhost và đứng ở `accept()`. Kiểm tra: một `TcpListener`/`TcpClient` trên loopback trong PowerShell cũng timeout. Cách đi vòng: build bằng `ninja` trong `D:\esp\build\ehmi_general` (thư mục build đã cấu hình), nạp bằng `python -m esptool ... write-flash "@flash_args"` trong thư mục build. `idf.py monitor` và `flash.bat` vẫn cần localhost. Ngày 2026-11-03 loopback chạy được và `flash.ps1 -Action flash` build, nạp và mở monitor được qua `idf.py`.
 - **`.component_hash ... does not exist`:** `firmware/managed_components` là thư mục thường trong ownCloud và đã được ownCloud tải về từ máy khác. ownCloud không đồng bộ file ẩn (tên bắt đầu bằng dấu chấm), nên mất `.component_hash`. Đã sửa như mục 1: chuyển thư mục cũ sang `D:\esp\managed\ehmi_from_owncloud_20261012` và tạo junction `managed_components` → `D:\esp\managed\ehmi`.
 - **Simulator: `cl : Command line error D8050` trên mọi file:** `D:\esp\build\hmi_sim\vsenv.txt` được chép từ máy khác, đặt `TEMP` thành `C:\Users\Tuan\...`. `sim_build.py` giờ tự tạo lại cache khi `USERPROFILE` khác.
 
@@ -77,7 +77,7 @@ Kết nối tới GitHub có lúc bị đứt giữa chừng (`error decoding re
 
 ### Vì sao dùng v6.1 và LVGL 9.6 (từ 2026-11-03)
 
-Đây là các bản phát hành mới nhất tại thời điểm 2026-11-03: ESP-IDF v6.1 (GCC 15.2, esptool 5.6), LVGL 9.6.0~1, esp_lvgl_port 2.9.0. Người dùng đã thử với servo thật rồi chọn chỉ dùng bộ này. `idf_component.yml` yêu cầu `idf >=6.1,<7.0`, nên build bằng IDF 5.5.4 sẽ dừng ngay ở bước cấu hình.
+Đây là các bản phát hành mới nhất tại thời điểm 2026-11-03: ESP-IDF v6.1 (GCC 15.2, esptool 5.6), LVGL 9.6.0~1, esp_lvgl_port 2.9.0. Người dùng báo đã thử với servo thật (chưa ghi rõ trên firmware nào) rồi chọn chỉ dùng bộ này. `idf_component.yml` yêu cầu `idf >=6.1,<7.0`, nên build bằng IDF 5.5.4 sẽ dừng ngay ở bước cấu hình.
 
 `esp_hosted` vẫn ở 2.11.7, dù registry đã có 3.0.10: C6 trên board đang chạy 2.3.0 và `net.c` sửa một bảng nội bộ của esp_hosted, nên lên bản chính mới phải thử trên board trước.
 
