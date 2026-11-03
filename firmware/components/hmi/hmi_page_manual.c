@@ -12,8 +12,8 @@
  * none, HMI_ASSUMED_UNITS_PER_REV is used and the page says so.
  * Speeds: Low 10 and Mid 60 rpm, High is the axis' "Jog speed (high)", all limited by its Max
  * speed; moves ramp with its Acc/Dec times (hmi_axis_cmd()).
- * The Teaching view lives in hmi_page_teach.c, Interpolation in hmi_page_interp.c; Actuators and
- * Homing are not built yet.
+ * The Teaching view lives in hmi_page_teach.c, Interpolation in hmi_page_interp.c (only with
+ * CONFIG_ECAT_PATH); Actuators and Homing are not built yet.
  */
 
 #include <stdio.h>
@@ -505,12 +505,14 @@ lv_obj_t *hmi_manual_header(lv_obj_t *root, hmi_manual_view_t view)
     lv_obj_set_style_pad_left(pills, 4, 0);
     lv_obj_t *jog = hmi_pill(pills, "Jog", view == HMI_MANUAL_JOG, true);
     lv_obj_t *teach = hmi_pill(pills, "Teaching", view == HMI_MANUAL_TEACH, true);
+#if CONFIG_ECAT_PATH
     lv_obj_t *interp = hmi_pill(pills, "Interpolation", view == HMI_MANUAL_INTERP, true);
+    lv_obj_add_event_cb(interp, pill_cb, LV_EVENT_CLICKED, (void *)(intptr_t)HMI_MANUAL_INTERP);
+#endif
     hmi_pill(pills, "Actuators", false, false);
     hmi_pill(pills, "Homing", false, false);
     lv_obj_add_event_cb(jog, pill_cb, LV_EVENT_CLICKED, (void *)(intptr_t)HMI_MANUAL_JOG);
     lv_obj_add_event_cb(teach, pill_cb, LV_EVENT_CLICKED, (void *)(intptr_t)HMI_MANUAL_TEACH);
-    lv_obj_add_event_cb(interp, pill_cb, LV_EVENT_CLICKED, (void *)(intptr_t)HMI_MANUAL_INTERP);
     hmi_spacer(row);
     return row;
 }
@@ -691,10 +693,12 @@ static void create_view(lv_obj_t *page)
         hmi_teach_create(root);
         return;
     }
+#if CONFIG_ECAT_PATH
     if (s_view == HMI_MANUAL_INTERP) {
         hmi_interp_create(root);
         return;
     }
+#endif
     memset(&s_m, 0, sizeof(s_m));
     s_m.page = page;
     s_m.root = hmi_box(root, LV_FLEX_FLOW_COLUMN, 12);

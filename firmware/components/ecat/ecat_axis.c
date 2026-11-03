@@ -14,9 +14,10 @@
  *   - halt (bit 8) stops PP/PV/HM with the profile deceleration and stays set until the next
  *     motion, so a halted move is never resumed by clearing it.
  *
- * Two-axis paths run in CSP: the drives take 0x607A every cycle, so the targets are computed
- * here from a trapezoid speed profile along the path (path_cycle). A path never uses halt: a stop
- * decelerates along the path, so the axes stay on it while they stop.
+ * Two-axis paths (CONFIG_ECAT_PATH, off by default) run in CSP: the drives take 0x607A every
+ * cycle, so the targets are computed here from a trapezoid speed profile along the path
+ * (path_cycle). A path never uses halt: a stop decelerates along the path, so the axes stay on it
+ * while they stop. Without the option no axis ever leaves PP/PV/HM.
  */
 
 #include <inttypes.h>
@@ -66,9 +67,11 @@ static const char *TAG = "ecat_axis";
 #define MODE_HM  6
 #define MODE_CSP 8
 
+#if CONFIG_ECAT_PATH
 #define PATH_QUEUE_LEN     2
 #define PATH_EXIT_HOLD_US  50000  /* last target held before the axes go back to PP */
 #define PATH_TWO_PI        6.28318531f
+#endif
 
 typedef struct {
     ecat_axis_status_t st;    /* published part */
@@ -99,6 +102,7 @@ static volatile bool s_shutdown;
 static QueueHandle_t s_q;
 static uint32_t s_cycle_us = 1000;
 
+#if CONFIG_ECAT_PATH
 /* Geometry of a path, from ecat_path_check(). */
 typedef struct {
     float length;
@@ -121,6 +125,7 @@ typedef struct {
 static path_t s_path;
 static QueueHandle_t s_pq;
 static atomic_bool s_path_stop; /* ecat_path_stop() from core 0 */
+#endif
 
 /* Status snapshot, seqlock: one writer (cyclic task), readers on core 0. */
 static atomic_uint s_seq;
@@ -280,9 +285,13 @@ static void apply_cmd(axis_t *a, const ecat_axis_cmd_t *c, int64_t now)
         start_job(a, ECAT_JOB_RESETTING, now);
         break;
     case ECAT_AXIS_STOP:
+#if CONFIG_ECAT_PATH
         if (a->st.job == ECAT_JOB_PATH) {
             s_path.stop_req = true; /* both axes decelerate along the path */
-        } else if (is_motion(a->st.job)) {
+            break;
+        }
+#endif
+        if (is_motion(a->st.job)) {
             halt_now(a, now, ECAT_AXERR_NONE);
         } else if (a->st.job == ECAT_JOB_ENABLING) {
             switch_off(a, ECAT_AXERR_NONE);
@@ -568,6 +577,7 @@ static void axis_output(axis_t *a)
 
 /* ---- Two-axis path (CSP) ---- */
 
+#if CONFIG_ECAT_PATH
 /* No path (bind, unbind, self-test); `gen` keeps counting so a waiting HMI sees the change. */
 static void path_reset(void)
 {
@@ -921,6 +931,11 @@ static void path_cycle(int64_t now)
         break;
     }
 }
+#else
+static void path_reset(void)
+{
+}
+#endif
 
 static void publish(void)
 {
@@ -933,7 +948,9 @@ static void publish(void)
     for (uint8_t i = 0; i < s_n; i++) {
         s_snap.axis[i] = s_ax[i].st;
     }
+#if CONFIG_ECAT_PATH
     s_snap.path = s_path.st;
+#endif
     atomic_thread_fence(memory_order_release);
     atomic_store_explicit(&s_seq, seq + 2, memory_order_relaxed);
 }
@@ -945,8 +962,11 @@ void ecat_axes_init(uint32_t cycle_us)
     s_cycle_us = cycle_us ? cycle_us : 1000;
     if (s_q == NULL) {
         s_q = xQueueCreate(CMD_QUEUE_LEN, sizeof(ecat_axis_cmd_t));
+        configASSERT(s_q);
+#if CONFIG_ECAT_PATH
         s_pq = xQueueCreate(PATH_QUEUE_LEN, sizeof(ecat_path_cmd_t));
-        configASSERT(s_q && s_pq);
+        configASSERT(s_pq);
+#endif
     }
     publish();
 }
@@ -990,7 +1010,9 @@ void ecat_axes_bind(struct ecx_context *ctx, const ecat_topology_t *bus)
     s_bus_ok = true;
     s_shutdown = false;
     xQueueReset(s_q); /* commands sent before OP are stale */
+#if CONFIG_ECAT_PATH
     xQueueReset(s_pq);
+#endif
     s_in_op = true;
     publish();
 
@@ -1038,14 +1060,18 @@ void ecat_axes_cycle(bool wkc_ok, int64_t now_us)
             apply_cmd(&s_ax[cmd.axis], &cmd, now_us);
         }
     }
+#if CONFIG_ECAT_PATH
     ecat_path_cmd_t path;
     if (xQueueReceive(s_pq, &path, 0) == pdTRUE) {
         path_start(&path, now_us);
     }
+#endif
     for (uint8_t i = 0; i < s_n; i++) {
         axis_update(&s_ax[i], now_us);
     }
+#if CONFIG_ECAT_PATH
     path_cycle(now_us);
+#endif
     for (uint8_t i = 0; i < s_n; i++) {
         axis_output(&s_ax[i]);
     }
@@ -1150,6 +1176,7 @@ const char *ecat_axis_job_text(uint8_t job)
 
 /* ---- Core 0: two-axis path ---- */
 
+#if CONFIG_ECAT_PATH
 const char *ecat_path_check(const ecat_path_cmd_t *p, float *length)
 {
     path_geom_t g;
@@ -1184,6 +1211,7 @@ const char *ecat_path_phase_text(uint8_t phase)
     default:                 return "Idle";
     }
 }
+#endif
 
 /* ---- Self-test against a simulated CiA402 drive ---- */
 
@@ -1374,6 +1402,7 @@ static void check(bool ok, const char *what)
 
 /* ---- Two-axis path self-test: two simulated drives in CSP ---- */
 
+#if CONFIG_ECAT_PATH
 static sim_t s_sim[2];
 
 static void sim2_run(int cycles, bool wkc_ok)
@@ -1581,6 +1610,7 @@ static void path_selftest(void)
                "leaving OP: the path decelerates, then both servos switch off");
     s_shutdown = false;
 }
+#endif
 
 int ecat_axis_selftest(void)
 {
@@ -1608,7 +1638,9 @@ int ecat_axis_selftest(void)
     s_fail = 0;
     s_t_now = 0;
     xQueueReset(s_q);
+#if CONFIG_ECAT_PATH
     xQueueReset(s_pq);
+#endif
     ESP_LOGI(TAG, "axis self-test with a simulated CiA402 drive:");
 
     sim_cmd(ECAT_AXIS_MOVE_ABS, 0, 1000, 100000);
@@ -1699,7 +1731,9 @@ int ecat_axis_selftest(void)
     check(sim_run_until_idle(&d, 100) && !a->st.enabled && !a->power && a->st.error == ECAT_AXERR_NONE,
           "quick stop ends with the servo off");
 
+#if CONFIG_ECAT_PATH
     path_selftest();
+#endif
 
     memset(s_ax, 0, sizeof(s_ax));
     s_n = 0;

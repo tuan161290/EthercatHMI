@@ -276,7 +276,7 @@ static void nav_clicked_cb(lv_event_t *e)
 static void nav_item_create(nav_item_t *it, lv_obj_t *rail, hmi_page_t page)
 {
     it->obj = hmi_box(rail, LV_FLEX_FLOW_COLUMN, 4);
-    lv_obj_add_flag(it->obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(it->obj, true);
     lv_obj_set_size(it->obj, NAV_ITEM_W, NAV_ITEM_H);
     lv_obj_set_style_radius(it->obj, 6, 0);
     lv_obj_set_style_bg_color(it->obj, HMI_C(HMI_WHITE), 0);
@@ -287,7 +287,8 @@ static void nav_item_create(nav_item_t *it, lv_obj_t *rail, hmi_page_t page)
     lv_obj_add_event_cb(it->obj, nav_clicked_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)page);
 
     it->indicator = hmi_box(it->obj, -1, 0);
-    lv_obj_add_flag(it->indicator, LV_OBJ_FLAG_IGNORE_LAYOUT | LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_ignore_layout(it->indicator, true);
+    lv_obj_set_hidden(it->indicator, true);
     lv_obj_set_size(it->indicator, 4, 24);
     lv_obj_set_pos(it->indicator, 0, (NAV_ITEM_H - 24) / 2);
     lv_obj_set_style_radius(it->indicator, 2, 0);
@@ -299,7 +300,8 @@ static void nav_item_create(nav_item_t *it, lv_obj_t *rail, hmi_page_t page)
 
     if (page == HMI_PAGE_ALARMS) {
         s_badge = hmi_box(it->obj, LV_FLEX_FLOW_ROW, 0);
-        lv_obj_add_flag(s_badge, LV_OBJ_FLAG_IGNORE_LAYOUT | LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_ignore_layout(s_badge, true);
+        lv_obj_set_hidden(s_badge, true);
         lv_obj_set_pos(s_badge, NAV_ITEM_W / 2 + 6, 6);
         lv_obj_set_height(s_badge, 22);
         lv_obj_set_style_min_width(s_badge, 22, 0);
@@ -318,11 +320,7 @@ static void nav_select(hmi_page_t page)
         nav_item_t *it = &s_nav[i];
         bool sel = i == (int)page;
         lv_obj_set_style_bg_opa(it->obj, sel ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
-        if (sel) {
-            lv_obj_remove_flag(it->indicator, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(it->indicator, LV_OBJ_FLAG_HIDDEN);
-        }
+        lv_obj_set_hidden(it->indicator, !sel);
         hmi_icon_set_color(it->icon, sel ? HMI_ACCENT : HMI_TEXT);
         lv_obj_set_style_text_font(it->label, hmi_font(NAV_LABEL_PX, sel ? HMI_SEMIBOLD : HMI_REGULAR), 0);
         lv_obj_set_style_text_color(it->label, HMI_C(sel ? HMI_TEXT : HMI_TEXT_2), 0);
@@ -409,7 +407,9 @@ static const struct {
     {"manual", HMI_PAGE_MANUAL, HMI_MANUAL_JOG},
     {"jog", HMI_PAGE_MANUAL, HMI_MANUAL_JOG},
     {"teach", HMI_PAGE_MANUAL, HMI_MANUAL_TEACH},
+#if CONFIG_ECAT_PATH
     {"interp", HMI_PAGE_MANUAL, HMI_MANUAL_INTERP},
+#endif
     {"io", HMI_PAGE_IO, -1},
     {"alarms", HMI_PAGE_ALARMS, -1},
     {"settings", HMI_PAGE_SETTINGS, -1},
@@ -447,7 +447,7 @@ void hmi_shell_create(void)
      * no dithering). Cards are white on it, controls sit on the cards. */
     lv_obj_t *scr = lv_screen_active();
     lv_obj_remove_style_all(scr);
-    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(scr, false);
     lv_obj_set_style_bg_color(scr, HMI_C(HMI_BG), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 

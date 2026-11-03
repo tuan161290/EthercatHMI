@@ -322,7 +322,8 @@ lv_obj_t *hmi_icon(lv_obj_t *parent, hmi_icon_t icon, int32_t size, uint32_t col
 {
     lv_obj_t *o = lv_obj_create(parent);
     lv_obj_remove_style_all(o);
-    lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_clickable(o, false);
+    lv_obj_set_scrollable(o, false);
     lv_obj_set_size(o, size, size);
     lv_obj_set_style_text_color(o, HMI_C(color), 0);
     lv_obj_add_event_cb(o, icon_draw_cb, LV_EVENT_DRAW_MAIN, (void *)(uintptr_t)icon);

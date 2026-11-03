@@ -79,9 +79,10 @@ static bool open_dropdown(lv_obj_t *obj)
     return false;
 }
 
-/* Scenes: a page with something done on it. */
+/* Scenes: a page with something done on it. Both are on Manual > Interpolation (CONFIG_ECAT_PATH). */
 static bool scene(const char *name)
 {
+#if CONFIG_ECAT_PATH
     lv_obj_t *scr = lv_screen_active();
     if (strcmp(name, "interp_run") == 0) {
         /* A full circle counter-clockwise around (10, 5), traced while it runs */
@@ -91,15 +92,19 @@ static bool scene(const char *name)
         pump(100);
         click_text(scr, "Start");
         pump(15000);
-    } else if (strcmp(name, "dropdown") == 0) {
+        return true;
+    }
+    if (strcmp(name, "dropdown") == 0) {
         hmi_open_page("interp");
         pump(300);
         open_dropdown(scr);
         pump(300);
-    } else {
-        return false;
+        return true;
     }
-    return true;
+#else
+    (void)name;
+#endif
+    return false;
 }
 
 static void text_cb(const char *text, void *user)
@@ -140,9 +145,16 @@ static bool open_dialog(const char *name)
 
 int main(int argc, char **argv)
 {
-    static const char *const all[] = {"main",     "jog",    "teach",  "interp", "io",      "alarms",
-                                      "settings", "time",   "servo",  "ethercat", "system", "network",
-                                      "info",     "keyboard", "interp_run", "dropdown"};
+    static const char *const all[] = {"main",     "jog",      "teach",
+#if CONFIG_ECAT_PATH
+                                      "interp",
+#endif
+                                      "io",       "alarms",   "settings", "time",   "servo",   "ethercat",
+                                      "system",   "network",  "info",     "keyboard",
+#if CONFIG_ECAT_PATH
+                                      "interp_run", "dropdown",
+#endif
+    };
     if (argc < 2) {
         fprintf(stderr, "use: hmi_sim <out dir> [page ...]\n");
         return 2;

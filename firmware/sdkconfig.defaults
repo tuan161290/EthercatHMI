@@ -1,4 +1,5 @@
 # ESP-IDF v5.5.4, Guition JC1060P470C_I_W_Y (ESP32-P4 + ESP32-C6)
+# Shared by every app in apps/; each app adds its own apps/<app>/sdkconfig.defaults, which wins.
 CONFIG_IDF_TARGET="esp32p4"
 
 # Chip: all vendor firmware targets P4 silicon v1.x (vendor sdkconfig).
@@ -10,7 +11,9 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+# Relative to the app folder (apps/<app>): one partition table for every app, so the machine store
+# and NVS stay where they are when another app is flashed.
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../../partitions.csv"
 CONFIG_IDF_EXPERIMENTAL_FEATURES=y
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_SPEED_200M=y
@@ -19,7 +22,11 @@ CONFIG_SPIRAM_XIP_FROM_PSRAM=y
 # Statics marked EXT_RAM_BSS_ATTR (HMI page state, snapshots, machine data) live in PSRAM, so
 # internal RAM keeps one block for the 96 KB LVGL draw buffer (DMA) and the EtherCAT data.
 CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
-CONFIG_CACHE_L2_CACHE_256KB=y
+# The L2 cache is carved out of the 768 KB L2MEM: 128 KB (the IDF default) instead of 256 KB leaves
+# 128 KB more internal RAM. Code runs from PSRAM through this cache, so a smaller one costs some
+# speed; accepted because the machine needs Profile Position only (2026-10-31). Console 'bench'
+# measures the HMI side.
+CONFIG_CACHE_L2_CACHE_128KB=y
 CONFIG_CACHE_L2_CACHE_LINE_128B=y
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 
@@ -34,8 +41,9 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
 # Ethernet: internal EMAC, RMII. EtherCAT runs on raw frames, so lwIP is never attached.
+# RMII and its clock are set in board_eth.c (IDF 6 removed CONFIG_ETH_PHY_INTERFACE_RMII; on IDF 5.5
+# RMII is the P4's only choice anyway).
 CONFIG_ETH_USE_ESP32_EMAC=y
-CONFIG_ETH_PHY_INTERFACE_RMII=y
 CONFIG_ETH_IRAM_OPTIMIZATION=y
 # SOEM sends from the cycle task and from the mailbox/check task
 CONFIG_ETH_TRANSMIT_MUTEX=y
@@ -44,8 +52,8 @@ CONFIG_ETH_DMA_RX_BUFFER_NUM=20
 CONFIG_ETH_DMA_TX_BUFFER_NUM=10
 CONFIG_ETH_USE_SPI_ETHERNET=n
 
-# SOEM sized for this machine (ecx_contextt lives in internal RAM; was 99 KB with the defaults
-# 32/16/16, 2026-10-11):
+# SOEM sized for this machine (ecx_contextt was 99 KB with the defaults 32/16/16, now 54 KB,
+# 2026-10-11; in PSRAM since 2026-10-31, main.c):
 # - 20 slaves: slavelist[0] is the master's, so 19 on the bus (bench 10, target about 10).
 #   More slaves on the bus: ecx_config_init() refuses (EC_SLAVECOUNTEXCEEDED) and the bus stays down.
 # - 8 frame buffers: about 3 frames are ever in flight (one LRW per cycle, the IOmap fits one
@@ -74,14 +82,16 @@ CONFIG_ESP_HOSTED_WIFI_AUTO_CONNECT_ON_STA_START=n
 CONFIG_ESP_HOSTED_CLI_ENABLED=n
 CONFIG_ESP_HOSTED_MEM_MONITOR=n
 
-# LVGL 9.5 (components/hmi, docs/HMI_THEME.md)
-CONFIG_LV_COLOR_DEPTH_16=y
+# LVGL 9.6 (components/hmi, docs/HMI_THEME.md); RGB565 replaces the deprecated LV_COLOR_DEPTH_16
+CONFIG_LV_COLOR_FORMAT_RGB565=y
+# Round colour mixes half up, as LVGL 9.5 did for 16-bit colour (9.6 defaults to 0, rounding down)
+CONFIG_LV_COLOR_MIX_ROUND_OFS=128
 # Heap in PSRAM first (components/hmi/hmi_lv_mem.c); internal RAM stays for EtherCAT
 CONFIG_LV_USE_CUSTOM_MALLOC=y
 CONFIG_LV_USE_CLIB_STRING=y
 CONFIG_LV_USE_CLIB_SPRINTF=y
-# One software draw unit: rendering stays in the LVGL task on core 0 (no extra draw threads)
-CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1
+# No LVGL OS layer (LV_OS_NONE, esp_lvgl_port locks around LVGL itself), so one software draw unit:
+# rendering stays in the LVGL task on core 0. LVGL 9.6 hides LV_DRAW_SW_DRAW_UNIT_CNT in that case.
 CONFIG_LV_DEF_REFR_PERIOD=15
 # Not in IRAM (unlike the vendor demo): internal RAM overflows by ~32 KB with EtherCAT's IRAM code
 CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n
@@ -89,5 +99,7 @@ CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=n
 CONFIG_LV_USE_FLOAT=y
 # Open Sans is rendered from the embedded TTF files
 CONFIG_LV_USE_TINY_TTF=y
-# Every object is styled by components/hmi; no Material default theme
+# Every object is styled by components/hmi; no Material default theme, no monochrome theme
+# (LVGL 9.6 turns that one on for every colour format)
 CONFIG_LV_USE_THEME_DEFAULT=n
+CONFIG_LV_USE_THEME_MONO=n

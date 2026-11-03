@@ -1,9 +1,17 @@
-# ESP-IDF: generated, never committed (CLAUDE.md, Build / flash). Builds go to <drive>:\esp\build.
+# ESP-IDF: generated, never committed (CLAUDE.md, Build / flash). Builds go to <drive>:\esp\build,
+# and each app keeps its sdkconfig there; these catch builds made inside the tree.
+firmware/apps/*/build/
+firmware/apps/*/sdkconfig
+firmware/apps/*/sdkconfig.old
+firmware/apps/*/.cache/
+# Downloaded by the component manager (pinned by each app's dependencies.lock). No trailing slash, so
+# a junction (docs/SETUP.md section 1) matches too.
+firmware/apps/*/managed_components
+# Left from the single-project layout before 2026-10-31
 firmware/build/
 firmware/sdkconfig
 firmware/sdkconfig.old
 firmware/.cache/
-# Junction to <drive>:\esp\managed\ehmi (docs/SETUP.md section 1); no trailing slash so the link itself matches
 firmware/managed_components
 
 # Vendor package archive (222 MB): stays in ownCloud only

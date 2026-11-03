@@ -1,0 +1,14 @@
+menu "EtherCAT axes"
+
+    config ECAT_PATH
+        bool "Two-axis interpolation in CSP (Manual > Interpolation, console 'path')"
+        default n
+        help
+            Lines and arcs on two axes in cyclic synchronous position (6060 = 8), with the targets
+            computed by the cyclic task. Off because the machine needs Profile Position only
+            (CLAUDE.md, 2026-10-31): without it the cyclic task runs PP, PV and homing only, and
+            the Manual page has no Interpolation view. Turn it on to test interpolation again.
+            Still Free Run without DC: whether the drives accept CSP that way is unverified
+            (docs/SLAVES_LEADSHINE.md section 6).
+
+endmenu

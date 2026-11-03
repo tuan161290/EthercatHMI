@@ -278,7 +278,7 @@ static void build_scan_rows(void)
         lv_obj_t *row = slave_row(s, ecat_topology_device_name(s), dev_color, status, kind, bus);
         /* Tapping a row (its "Add" chip looks like a button) opens the same Accept dialog. */
         if (s_view.issues.n_blocking == 0 && s_view.phase == ECAT_BUS_PHASE_HELD) {
-            lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_set_clickable(row, true);
             lv_obj_set_style_bg_color(row, lv_color_black(), LV_STATE_PRESSED);
             lv_obj_set_style_bg_opa(row, HMI_TINT_OPA, LV_STATE_PRESSED);
             lv_obj_add_event_cb(row, row_accept_cb, LV_EVENT_CLICKED, NULL);
@@ -458,7 +458,7 @@ static void update_all(void)
     update_panel();
 }
 
-/* Cycle timing rows, refreshed on every poll: main.c publishes them once a second. */
+/* Cycle timing rows, refreshed on every poll: app_core.c publishes them once a second. */
 static void timing_update(void)
 {
     hmi_bus_status_t st = {0};
@@ -487,11 +487,7 @@ static void timing_update(void)
 static void message_set(const char *text)
 {
     hmi_set_text(s_ec.message, text);
-    if (text[0]) {
-        lv_obj_remove_flag(s_ec.message, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(s_ec.message, LV_OBJ_FLAG_HIDDEN);
-    }
+    lv_obj_set_hidden(s_ec.message, text[0] == '\0');
 }
 
 static void poll_cb(lv_timer_t *t)
@@ -709,7 +705,7 @@ void hmi_ethercat_create(lv_obj_t *root, lv_obj_t *head)
 
     s_ec.message = hmi_label(info, "", HMI_FS_SMALL, HMI_SEMIBOLD, HMI_CAUTION);
     lv_obj_set_width(s_ec.message, LV_PCT(100));
-    lv_obj_add_flag(s_ec.message, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(s_ec.message, true);
 
     static const char *const topo_keys[] = {"Expected", "On the bus"};
     for (int i = INFO_EXPECTED; i <= INFO_BUS; i++) {

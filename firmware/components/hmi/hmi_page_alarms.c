@@ -2,9 +2,9 @@
  * Alarms (mockup Alarm.dc.html): the current alarm list or the history on the left, the details
  * of the selected alarm (cause, remedy) on the right.
  *
- * Alarms come from machine_alarm.h (raised by main/app_alarms.c). Reset sends a fault reset to
- * every axis that is in fault or was stopped by an error; the alarms then clear by themselves
- * once their condition is gone. Export to SD is not available yet (no SD card driver).
+ * Alarms come from machine_alarm.h (raised by components/app_core/app_alarms.c). Reset sends a
+ * fault reset to every axis that is in fault or was stopped by an error; the alarms then clear by
+ * themselves once their condition is gone. Export to SD is not available yet (no SD card driver).
  */
 
 #include <stdio.h>
@@ -244,7 +244,7 @@ static void list_row(const machine_alarm_t *a, bool sel)
 
     if (sel) {
         lv_obj_t *bar = hmi_box(row, -1, 0);
-        lv_obj_add_flag(bar, LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_set_ignore_layout(bar, true);
         lv_obj_set_size(bar, 3, 16);
         lv_obj_set_pos(bar, -11, (ROW_H - 16) / 2 - 1);
         lv_obj_set_style_radius(bar, 2, 0);
@@ -253,7 +253,7 @@ static void list_row(const machine_alarm_t *a, bool sel)
     }
 
     lv_obj_t *pick = hmi_box(row, LV_FLEX_FLOW_ROW, GAP);
-    lv_obj_add_flag(pick, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(pick, true);
     lv_obj_set_height(pick, LV_PCT(100));
     lv_obj_set_flex_grow(pick, 1);
     lv_obj_set_flex_align(pick, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -319,9 +319,10 @@ static void detail(const machine_alarm_t *a)
     lv_obj_set_flex_grow(col, 1);
     lv_obj_t *code = hmi_box(col, LV_FLEX_FLOW_ROW, 0);
     char t[96];
-    snprintf(t, sizeof(t), "%s \xC2\xB7 ", a->code);
+    snprintf(t, sizeof(t), "%s \xC2\xB7", a->code);
     hmi_label(code, t, HMI_FS_BODY, HMI_SEMIBOLD, HMI_TEXT);
-    hmi_label(code, err ? "Error" : "Warning", HMI_FS_BODY, HMI_SEMIBOLD, err ? HMI_CRITICAL : HMI_CAUTION);
+    /* The space leads the second label: LVGL 9.6 leaves a label's trailing spaces out of its width */
+    hmi_label(code, err ? " Error" : " Warning", HMI_FS_BODY, HMI_SEMIBOLD, err ? HMI_CRITICAL : HMI_CAUTION);
     lv_obj_t *title = hmi_label(col, a->title, HMI_FS_LARGE, HMI_SEMIBOLD, HMI_TEXT);
     lv_obj_set_width(title, LV_PCT(100));
 

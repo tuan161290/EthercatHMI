@@ -90,7 +90,8 @@ lv_obj_t *hmi_box(lv_obj_t *parent, int flow, int32_t gap)
 {
     lv_obj_t *o = lv_obj_create(parent);
     lv_obj_remove_style_all(o);
-    lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_clickable(o, false);
+    lv_obj_set_scrollable(o, false);
     lv_obj_set_size(o, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     if (flow >= 0) {
         lv_obj_set_flex_flow(o, (lv_flex_flow_t)flow);
@@ -102,8 +103,9 @@ lv_obj_t *hmi_box(lv_obj_t *parent, int flow, int32_t gap)
 
 void hmi_scroll_area(lv_obj_t *obj)
 {
-    lv_obj_add_flag(obj, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_CLICK_FOCUSABLE); /* a tap on it must not change any state */
+    lv_obj_set_scrollable(obj, true);
+    lv_obj_set_clickable(obj, true);
+    lv_obj_set_click_focusable(obj, false); /* a tap on it must not change any state */
     lv_obj_set_scroll_dir(obj, LV_DIR_VER);
 }
 
@@ -171,7 +173,7 @@ void hmi_field_style(lv_obj_t *box, lv_obj_t *value, hmi_field_t state)
 lv_obj_t *hmi_control(lv_obj_t *parent, int32_t w, int32_t h)
 {
     lv_obj_t *b = hmi_box(parent, LV_FLEX_FLOW_ROW, 8);
-    lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(b, true);
     lv_obj_add_style(b, &hmi_st_control, 0);
     lv_obj_add_style(b, &hmi_st_pressed, LV_STATE_PRESSED);
     lv_obj_set_size(b, w, h);
@@ -183,7 +185,7 @@ lv_obj_t *hmi_control(lv_obj_t *parent, int32_t w, int32_t h)
 lv_obj_t *hmi_filled_button(lv_obj_t *parent, int32_t h, uint32_t bg, int32_t radius)
 {
     lv_obj_t *b = hmi_box(parent, LV_FLEX_FLOW_ROW, 10);
-    lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(b, true);
     lv_obj_set_size(b, LV_PCT(100), h);
     lv_obj_set_style_bg_color(b, HMI_C(bg), 0);
     lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);

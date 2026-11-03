@@ -85,6 +85,46 @@ static int cmd_cpu(int argc, char **argv)
     }
     return 0;
 }
+
+/* Opens the pages one by one and measures each: core-0 time outside the idle task while the page
+ * is built and drawn (BENCH_SETTLE_MS window), and the longest LVGL refresh. For comparing builds
+ * (cache size, LVGL version, ...) without touching the screen. */
+#define BENCH_SETTLE_MS 600
+
+static int cmd_bench(int argc, char **argv)
+{
+    static const char *const pages[] = {"main", "jog",    "teach",    "io",     "alarms",  "settings",
+                                        "time", "servo", "ethercat", "system", "network", "info"};
+    const int rounds = argc > 1 ? atoi(argv[1]) : 2;
+    if (argc > 2 || rounds < 1 || rounds > 10) {
+        printf("Use: bench [rounds 1-10]\n");
+        return 1;
+    }
+    hmi_screen_wake();
+    vTaskDelay(pdMS_TO_TICKS(BENCH_SETTLE_MS));
+    printf("Per page: core 0 busy while it opens and draws, longest LVGL refresh (ms)\n");
+    for (int r = 1; r <= rounds; r++) {
+        uint32_t busy_sum = 0, refr_worst = 0;
+        printf("round %d%s\n", r, r == 1 ? " (first drawing of each glyph included)" : "");
+        for (size_t i = 0; i < sizeof(pages) / sizeof(pages[0]); i++) {
+            (void)hmi_cpu_refr_max_us();
+            const configRUN_TIME_COUNTER_TYPE idle0 = ulTaskGetIdleRunTimeCounterForCore(0);
+            const int64_t t0 = esp_timer_get_time();
+            (void)hmi_open_page(pages[i]);
+            vTaskDelay(pdMS_TO_TICKS(BENCH_SETTLE_MS));
+            const uint32_t span = (uint32_t)(esp_timer_get_time() - t0);
+            const uint32_t idle = (uint32_t)(ulTaskGetIdleRunTimeCounterForCore(0) - idle0);
+            const uint32_t busy = span > idle ? span - idle : 0;
+            const uint32_t refr = hmi_cpu_refr_max_us();
+            busy_sum += busy;
+            refr_worst = refr > refr_worst ? refr : refr_worst;
+            printf("  %-9s busy %6.1f   refresh %6.1f\n", pages[i], busy / 1000.0, refr / 1000.0);
+        }
+        printf("  all       busy %6.1f   refresh %6.1f (longest)\n", busy_sum / 1000.0, refr_worst / 1000.0);
+    }
+    (void)hmi_open_page("main");
+    return 0;
+}
 #endif
 
 /* ---- Machine data store ---- */
@@ -509,8 +549,9 @@ static int cmd_axis(int argc, char **argv)
     return 0;
 }
 
-/* ---- Two-axis path in CSP (ecat_path_*), distances in motor revolutions ---- */
+/* ---- Two-axis path in CSP (ecat_path_*, CONFIG_ECAT_PATH), distances in motor revolutions ---- */
 
+#if CONFIG_ECAT_PATH
 #define PATH_DEFAULT_RPS     1.0   /* path speed, rev/s */
 #define PATH_DEFAULT_RAMP_MS 200.0 /* standstill to that speed */
 
@@ -636,6 +677,7 @@ static int cmd_path(int argc, char **argv)
            speed);
     return 0;
 }
+#endif
 
 #if CONFIG_APP_HMI
 static bool parse_pct(const char *s, uint8_t *out)
@@ -727,10 +769,16 @@ static int cmd_screenshot(int argc, char **argv)
     return 0;
 }
 
+#if CONFIG_ECAT_PATH
+#define PAGE_INTERP "interp|"
+#else
+#define PAGE_INTERP ""
+#endif
+
 static int cmd_page(int argc, char **argv)
 {
     if (argc != 2 || !hmi_open_page(argv[1])) {
-        printf("Use: page main|manual|teach|interp|io|alarms|settings|time|servo|ethercat|system|network|info\n");
+        printf("Use: page main|manual|teach|" PAGE_INTERP "io|alarms|settings|time|servo|ethercat|system|network|info\n");
         return 1;
     }
     return 0;
@@ -913,7 +961,7 @@ static int cmd_ntp(int argc, char **argv)
 
 static int cmd_alarms(int argc, char **argv)
 {
-    static machine_alarm_t list[MACHINE_ALARM_ACTIVE_MAX]; /* console task only */
+    static EXT_RAM_BSS_ATTR machine_alarm_t list[MACHINE_ALARM_ACTIVE_MAX]; /* console task only; 9 KB */
     if (argc == 2 && strcmp(argv[1], "ack") == 0) {
         machine_alarm_ack_all();
     } else if (argc != 1) {
@@ -956,10 +1004,12 @@ esp_err_t app_console_start(void)
         { .command = "axis", .help = "Axes in OP: 'axis' lists them; 'axis 1 on|off|reset|stop|qstop|home', "
                                      "'axis 1 move|rel <pos> [rpm]', 'axis 1 jog +|- [rpm] [ms]'",
           .func = cmd_axis },
+#if CONFIG_ECAT_PATH
         { .command = "path", .help = "Two-axis path in CSP: 'path' status, 'path stop', "
                                      "'path line <X> <Y> <dx> <dy> [rev/s] [ms]', "
                                      "'path cw|ccw <X> <Y> <i> <j> [deg] [rev/s] [ms]' (revolutions)",
           .func = cmd_path },
+#endif
 #if CONFIG_APP_HMI
         { .command = "display", .help = "Show or set brightness and colour balance (%) and the screen timeouts (s): "
                                         "'display', 'display bright 60', 'display rgb 100 95 90', 'display reset', "
@@ -969,6 +1019,9 @@ esp_err_t app_console_start(void)
         { .command = "cpu", .help = "CPU load of both cores and LVGL frames/s over the last second; 'cpu 10' prints "
                                     "10 lines, one a second",
           .func = cmd_cpu },
+        { .command = "bench", .help = "Open every HMI page and time it (core 0 busy, longest refresh); "
+                                      "'bench 3' runs three rounds. For comparing builds",
+          .func = cmd_bench },
         { .command = "page", .help = "Show an HMI page: 'page io', 'page teach', 'page servo', ... (bench tests)",
           .func = cmd_page },
         { .command = "touchlog", .help = "Print the last 32 touches: point, down/up and the widget hit",

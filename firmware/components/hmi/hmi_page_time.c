@@ -303,7 +303,7 @@ static void clock_card(lv_obj_t *body)
     r = hmi_box(rows, LV_FLEX_FLOW_ROW, 12);
     lv_obj_set_size(r, LV_PCT(100), 44);
     lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_add_flag(r, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(r, true);
     lv_obj_add_event_cb(r, ntp_toggle_cb, LV_EVENT_CLICKED, NULL);
     hmi_divider_top(r);
     lv_obj_t *l = hmi_label(r, "Internet time", HMI_FS_BODY, HMI_REGULAR, HMI_TEXT);

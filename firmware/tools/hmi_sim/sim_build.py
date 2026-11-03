@@ -1,17 +1,18 @@
-"""Build and run the HMI simulator: the firmware's components/hmi and LVGL 9.5, compiled for the PC
+"""Build and run the HMI simulator: the firmware's components/hmi and LVGL 9.6, compiled for the PC
 with MSVC (cl) from Visual Studio, rendering pages to PNG files (no board needed).
 
     python sim_build.py                       build only
     python sim_build.py run [page ...]        build, render pages (default: all) to <build>/shots
     python sim_build.py run --out DIR main    render into DIR
 
-Pages: main jog teach interp io alarms settings time servo ethercat system network info, the scenes
-interp_run (a circle traced on Manual > Interpolation) and dropdown (its axis list open), plus the dialogs
-keyboard and keypad (drawn over the page opened before them).
+Pages: main jog teach io alarms settings time servo ethercat system network info, plus the dialogs
+keyboard and keypad (drawn over the page opened before them). With CONFIG_ECAT_PATH also interp and
+the scenes interp_run (a circle traced on Manual > Interpolation) and dropdown (its axis list open).
 
-LVGL and the HMI get exactly the firmware's configuration: the firmware build's sdkconfig.h is
-copied in (set FW_BUILD, default D:/esp/build/ehmi or C:/esp/build/ehmi). Objects are cached in
-SIM_BUILD (default <drive>:/esp/build/hmi_sim, outside ownCloud).
+LVGL and the HMI get exactly the configuration of one app's firmware build (set FW_APP, default
+general): its sdkconfig.h is copied in from FW_BUILD (default <drive>:/esp/build/ehmi_<app>), and
+LVGL comes from the app's managed_components. Objects are cached in SIM_BUILD (default
+<drive>:/esp/build/hmi_sim).
 """
 import concurrent.futures
 import glob
@@ -24,10 +25,11 @@ import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FW = os.path.normpath(os.path.join(HERE, "..", ".."))
-LVGL = os.path.join(FW, "managed_components", "lvgl__lvgl")
+APP = os.environ.get("FW_APP", "general")
+LVGL = os.path.join(FW, "apps", APP, "managed_components", "lvgl__lvgl")
 HMI = os.path.join(FW, "components", "hmi")
 DRIVE = "D:" if os.path.isdir("D:/esp") else "C:"
-FW_BUILD = os.environ.get("FW_BUILD", DRIVE + "/esp/build/ehmi")
+FW_BUILD = os.environ.get("FW_BUILD", DRIVE + "/esp/build/ehmi_" + APP)
 BUILD = os.environ.get("SIM_BUILD", DRIVE + "/esp/build/hmi_sim")
 EXE = os.path.join(BUILD, "hmi_sim.exe")
 W, H = 1024, 600

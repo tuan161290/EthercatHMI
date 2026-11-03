@@ -1,5 +1,7 @@
 /*
- * EtherCAT master bring-up application for the JC1060P470C_I_W_Y.
+ * Application core (app_core.h): the EtherCAT master of the JC1060P470C_I_W_Y, with the HMI,
+ * machine data, alarms, Wi-Fi and the console started around it. Every app in firmware/apps
+ * calls app_core_start() from its app_main().
  *
  * Start-up follows the topology rule of docs/ETHERCAT_PLAN.md section 3.6:
  *   scan -> compare with the saved topology -> OP only if nothing blocking differs;
@@ -22,6 +24,7 @@
 #include <time.h>
 #include "app_alarms.h"
 #include "app_console.h"
+#include "app_core.h"
 #include "board_eth.h"
 #include "ecat_axis.h"
 #include "ecat_busview.h"
@@ -30,6 +33,7 @@
 #include "ecat_io.h"
 #include "ecat_sdo_service.h"
 #include "ecat_topology.h"
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -69,8 +73,13 @@ typedef struct {
     uint32_t wake_late_max_us;  /* worst wake-up delay after the deadline */
 } cycle_stats_t;
 
-static ecx_contextt s_ctx;
-static uint8_t s_iomap[ECAT_IOMAP_SIZE] __attribute__((aligned(4)));
+/* In PSRAM (54 + 4 KB of internal RAM freed, 2026-10-31): the machine runs Profile Position only,
+ * so a cycle may be late by the cache misses this adds. Both cores see the same data: the P4 has
+ * an ICache per core but one L1 DCache (IDF hal/esp32p4/include/hal/cache_ll.h). No DMA reads
+ * these buffers: the EMAC driver copies each frame into its own descriptors' buffers (IDF
+ * esp_eth/src/mac/esp_eth_mac_esp_dma.c, emac_esp_dma_transmit_frame). */
+static EXT_RAM_BSS_ATTR ecx_contextt s_ctx;
+static EXT_RAM_BSS_ATTR uint8_t s_iomap[ECAT_IOMAP_SIZE] __attribute__((aligned(4)));
 static volatile bool s_in_op;
 static volatile bool s_holding;   /* in hold_loop(): bus held in PRE-OP, waiting for commands */
 static volatile bool s_need_check;
@@ -944,7 +953,7 @@ void app_bus_info(app_bus_info_t *out)
     out->wkc_errors = s_in_op ? s_stats.wkc_errors : 0;
 }
 
-void app_main(void)
+void app_core_start(void)
 {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -968,8 +977,8 @@ void app_main(void)
     s_panel_active = panel_load();
 #if CONFIG_APP_HMI
     /* Before the EtherCAT tasks: the HMI's 96 KB draw buffer needs one contiguous DMA-capable
-     * block of internal RAM, which their stacks would split. app_main runs on core 0, so the
-     * display and touch interrupts land there. */
+     * block of internal RAM, which their stacks would split. This runs in app_main on core 0, so
+     * the display and touch interrupts land there. */
     const hmi_config_t hmi_cfg = {
         .panel = s_panel_active,
         .brightness = CONFIG_HMI_BRIGHTNESS,

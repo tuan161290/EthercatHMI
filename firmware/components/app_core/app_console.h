@@ -18,10 +18,10 @@ typedef enum {
     APP_CMD_SELFTEST, /*!< Run the topology logic self-test */
 } app_cmd_t;
 
-/** Implemented by main.c: queue a command for the EtherCAT task. Safe to call from any task. */
+/** Implemented by app_core.c: queue a command for the EtherCAT task. Safe to call from any task. */
 bool app_ecat_request(app_cmd_t cmd);
 
-/** Implemented by main.c: show (arg NULL) or store ("new"/"old") the LCD panel variant. */
+/** Implemented by app_core.c: show (arg NULL) or store ("new"/"old") the LCD panel variant. */
 bool app_panel_request(const char *arg);
 
 /** Start the REPL on the primary console (task on core 0). */

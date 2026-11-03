@@ -3,6 +3,8 @@
     Build, flash and monitor the EthercatHMI firmware on the JC1060P470C (ESP32-P4).
 .DESCRIPTION
     Started by firmware\flash.bat. Shows a menu unless -Action is given.
+    Works on one app of firmware\apps (-App, or the menu asks when there are several); each app
+    builds into <drive>:\esp\build\ehmi_<app>.
     Before writing to the board it:
       - reads the chip revision and refuses an image built for the other revision family
         (v1.x and v3.x images are not interchangeable, docs\SETUP.md section 4);
@@ -20,11 +22,13 @@
     flash.bat
     flash.bat COM7
     powershell -File tools\flash.ps1 -Port COM7 -Action flash
+    powershell -File tools\flash.ps1 -App general -Action build
 #>
 param(
     [string]$Port = "",
     [ValidateSet("", "build", "flash", "flash-only", "monitor", "info", "backup", "clock")]
-    [string]$Action = ""
+    [string]$Action = "",
+    [string]$App = ""
 )
 
 # EIM installs ESP-IDF v5.5.4 on C: on one PC and on D: on another (docs\SETUP.md section 0).
@@ -34,10 +38,14 @@ foreach ($d in @("C:", "D:")) {
     if (Test-Path "$d\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1") { $IdfDrive = $d; break }
 }
 $IdfProfile = "$IdfDrive\Espressif\tools\Microsoft.v5.5.4.PowerShell_profile.ps1"
-$BuildDir = "$IdfDrive\esp\build\ehmi"   # out of tree: the project lives in ownCloud (MAX_PATH)
 $BackupRoot = "$IdfDrive\esp\backup"
 $FlashBytes = 16MB
-$ProjectDir = Split-Path -Parent $PSScriptRoot
+$FirmwareDir = Split-Path -Parent $PSScriptRoot
+$AppsDir = Join-Path $FirmwareDir "apps"
+# Set by Select-App: the app's project folder, and its build folder out of tree (short paths, and
+# no build output in a synced folder)
+$script:ProjectDir = ""
+$script:BuildDir = ""
 $UsbSerialJtag = "USB\VID_303A&PID_1001*" # Espressif USB-Serial-JTAG = the USB2 "Full Speed" port
 
 $script:Py = ""
@@ -125,16 +133,45 @@ function Get-ChipInfo([string]$P) {
     return $chip
 }
 
-# "v1" when the build selects P4 revision < v3.0 (CONFIG_ESP32P4_SELECTS_REV_LESS_V3), else "v3".
-function Get-BuildRevision {
-    foreach ($name in @("sdkconfig", "sdkconfig.defaults")) {
-        $f = Join-Path $ProjectDir $name
-        if (Test-Path $f) {
-            if (Select-String -Path $f -Pattern '^CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y' -Quiet) { return "v1" }
-            return "v3"
-        }
+# The apps: folders of firmware\apps with a CMakeLists.txt (an ESP-IDF project each).
+function Get-Apps {
+    return @(Get-ChildItem -Path $AppsDir -Directory -ErrorAction SilentlyContinue |
+        Where-Object { Test-Path (Join-Path $_.FullName "CMakeLists.txt") } |
+        ForEach-Object { $_.Name } | Sort-Object)
+}
+
+# Picks the app ($Name, the only one, or asks) and sets the project and build folders.
+function Select-App([string]$Name) {
+    $apps = @(Get-Apps) # @(): a single app would come back as a string
+    if ($apps.Count -eq 0) {
+        Write-Fail "Không có app nào trong $AppsDir"
+        return $false
     }
-    return "v1"
+    if ($Name -eq "" -and $apps.Count -eq 1) { $Name = $apps[0] }
+    while ($apps -notcontains $Name) {
+        if ($Name -ne "") { Write-Note "Không có app '$Name'." }
+        Write-Host "Các app: $($apps -join ', ')"
+        $Name = Read-Answer "Chọn app"
+        if ($Name -eq "") { return $false }
+    }
+    $script:App = $Name
+    $script:ProjectDir = Join-Path $AppsDir $Name
+    $script:BuildDir = "$IdfDrive\esp\build\ehmi_$Name"
+    return $true
+}
+
+# "v1" when the build selects P4 revision < v3.0 (CONFIG_ESP32P4_SELECTS_REV_LESS_V3), else "v3".
+# The build's own sdkconfig decides; before the first build, the app's defaults and then the shared
+# ones, whichever mentions the option first.
+function Get-BuildRevision {
+    $files = @((Join-Path $BuildDir "sdkconfig"), (Join-Path $ProjectDir "sdkconfig.defaults"),
+        (Join-Path $FirmwareDir "sdkconfig.defaults"))
+    foreach ($f in $files) {
+        if (-not (Test-Path $f)) { continue }
+        if (Select-String -Path $f -Pattern '^CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y' -Quiet) { return "v1" }
+        if (Select-String -Path $f -Pattern 'CONFIG_ESP32P4_SELECTS_REV_LESS_V3' -Quiet) { return "v3" }
+    }
+    return "v3"
 }
 
 function Test-ChipMatchesBuild($chip) {
@@ -210,7 +247,7 @@ function Invoke-Backup([string]$P, $chip, [string]$File) {
 
 function Invoke-Build {
     $script:Ok = $false
-    Write-Step "Build firmware vào $BuildDir"
+    Write-Step "Build app $App vào $BuildDir"
     Push-Location $ProjectDir
     & $script:Py $script:IdfPy -B $BuildDir build
     $code = $LASTEXITCODE
@@ -345,7 +382,7 @@ function Show-Menu {
     if ($portText -eq "") { $portText = "tự tìm" }
     Write-Host ""
     Write-Host "EthercatHMI - nạp firmware JC1060P470C (ESP32-P4)" -ForegroundColor Cyan
-    Write-Host "Cổng: $portText    Bản build: $built"
+    Write-Host "App: $App    Cổng: $portText    Bản build: $built"
     Write-Host "  1  Build + nạp + monitor"
     Write-Host "  2  Nạp bản đã build (không build lại) + monitor"
     Write-Host "  3  Chỉ monitor"
@@ -353,6 +390,7 @@ function Show-Menu {
     Write-Host "  5  Thông tin chip (revision, flash, MAC, bản sao lưu)"
     Write-Host "  6  Sao lưu toàn bộ flash 16 MB"
     Write-Host "  7  Đặt giờ board (và RTC) theo giờ máy tính"
+    if (@(Get-Apps).Count -gt 1) { Write-Host "  8  Đổi app" }
     Write-Host "  0  Thoát"
 }
 
@@ -360,6 +398,7 @@ function Show-Menu {
 
 $script:Port = $Port.ToUpper()
 if (-not (Initialize-Idf)) { exit 1 }
+if (-not (Select-App $App)) { exit 1 }
 
 if ($Action -ne "") {
     Invoke-Action $Action
@@ -372,7 +411,11 @@ while ($true) {
     Show-Menu
     $choice = Read-Answer "Chọn"
     if ($choice -eq "0" -or $choice -eq "") { break }
-    if ($menu.ContainsKey($choice)) {
+    if ($choice -eq "8" -and @(Get-Apps).Count -gt 1) {
+        Write-Host "Các app: $(@(Get-Apps) -join ', ')"
+        $name = Read-Answer "Chọn app (Enter = giữ $App)"
+        if ($name -ne "") { [void](Select-App $name) }
+    } elseif ($menu.ContainsKey($choice)) {
         Invoke-Action $menu[$choice]
     } else {
         Write-Note "Không có lựa chọn '$choice'."

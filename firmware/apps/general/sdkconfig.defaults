@@ -1,0 +1,6 @@
+# General App: settings of its own, on top of firmware/sdkconfig.defaults (shared by every app).
+# A machine app puts here what makes it that machine, for example:
+#   CONFIG_HMI_MACHINE_NAME="Packing line 2"
+#   CONFIG_HMI_DEMO_DATA=n
+#   CONFIG_ECAT_PATH=y          (two-axis interpolation in CSP)
+# The General App keeps every default.
